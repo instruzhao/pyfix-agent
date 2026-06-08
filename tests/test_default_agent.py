@@ -278,6 +278,9 @@ def test_stays_in_replacement_mode_after_replacement_pytest_failure(tmp_path):
     assert result.iterations[3].replacement_edits
     assert result.iterations[2].pytest_exit_code == 1
     assert result.iterations[3].pytest_exit_code == 0
+    final_source = (workspace / "calc_multi.py").read_text(encoding="utf-8")
+    assert 'raise ValueError("division by zero")' in final_source
+    assert "return value + 1" in final_source
 
     trace_path = save_trace(result, tmp_path / "traces")
     trace = json.loads(trace_path.read_text(encoding="utf-8"))
