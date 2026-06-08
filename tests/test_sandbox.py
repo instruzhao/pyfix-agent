@@ -10,6 +10,17 @@ def test_sandbox_allows_python_command(tmp_path):
     assert "hello" in result.stdout
 
 
+def test_sandbox_disables_python_bytecode_cache(tmp_path):
+    sandbox = LocalSandbox(tmp_path)
+
+    result = sandbox.run(
+        ["python", "-c", "import os; print(os.environ.get('PYTHONDONTWRITEBYTECODE'))"]
+    )
+
+    assert result.exit_code == 0
+    assert result.stdout.strip() == "1"
+
+
 def test_sandbox_blocks_dangerous_command(tmp_path):
     sandbox = LocalSandbox(tmp_path)
 
