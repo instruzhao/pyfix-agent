@@ -1,0 +1,337 @@
+import json
+import subprocess
+
+from pyfixagent.agent.default_agent import DefaultAgent
+from pyfixagent.main import save_trace
+from pyfixagent.models.mock_model import MockModel
+from pyfixagent.sandbox.local_sandbox import LocalSandbox
+
+
+def init_workspace(tmp_path, source: str, test_source: str):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / "calculator.py").write_text(source, encoding="utf-8")
+    (workspace / "test_calculator.py").write_text(test_source, encoding="utf-8")
+    subprocess.run(["git", "init"], cwd=workspace, check=True, capture_output=True)
+    subprocess.run(["git", "add", "."], cwd=workspace, check=True, capture_output=True)
+    return workspace
+
+
+def make_agent(workspace, tmp_path, model, max_iterations=3, initial_mode="patch"):
+    return DefaultAgent(
+        model=model,
+        sandbox=LocalSandbox(workspace),
+        patch_output_dir=tmp_path / "patches",
+        max_iterations=max_iterations,
+        initial_mode=initial_mode,
+    )
+
+
+def pytest_test_for_divide():
+    return (
+        "import pytest\n"
+        "from calculator import divide\n\n"
+        "def test_divide_regular_case():\n"
+        "    assert divide(6, 2) == 3\n\n"
+        "def test_divide_by_zero_raises_value_error():\n"
+        "    with pytest.raises(ValueError):\n"
+        "        divide(1, 0)\n"
+    )
+
+
+def divide_zero_patch():
+    return """--- a/calculator.py
++++ b/calculator.py
+@@ -1,2 +1,4 @@
+ def divide(a, b):
++    if b == 0:
++        raise ValueError("division by zero")
+     return a / b
+"""
+
+
+def test_first_patch_success_and_pytest_passes(tmp_path):
+    workspace = init_workspace(
+        tmp_path,
+        "def divide(a, b):\n    return a / b\n",
+        pytest_test_for_divide(),
+    )
+    model = MockModel([divide_zero_patch()])
+
+    result = make_agent(workspace, tmp_path, model, max_iterations=1).run("Fix tests.")
+
+    assert result.success
+    assert result.final_patch_command == "git diff --"
+    assert model.calls == 1
+    assert len(result.iterations) == 1
+    record = result.iterations[0]
+    assert record.raw_model_output == divide_zero_patch()
+    assert "raise ValueError" in record.cleaned_patch
+    assert record.cleaned_patch.startswith("diff --git a/calculator.py b/calculator.py")
+    assert record.apply_check_success
+    assert record.apply_success
+    assert record.pytest_exit_code == 0
+
+
+def test_patch_check_failure_then_second_patch_success(tmp_path):
+    workspace = init_workspace(
+        tmp_path,
+        "def divide(a, b):\n    return a / b\n",
+        pytest_test_for_divide(),
+    )
+    model = MockModel(["not a patch", divide_zero_patch()])
+
+    result = make_agent(workspace, tmp_path, model, max_iterations=2).run("Fix tests.")
+
+    assert result.success
+    assert model.calls == 2
+    assert len(result.iterations) == 2
+    assert not result.iterations[0].apply_check_success
+    assert not result.iterations[0].apply_success
+    assert result.iterations[0].apply_check_error
+    assert result.iterations[0].patch_command == "git apply --check -"
+    assert "return a / b" in (workspace / "calculator.py").read_text(encoding="utf-8")
+    assert result.iterations[1].apply_check_success
+    assert result.iterations[1].success
+
+
+def test_falls_back_to_replacement_after_two_patch_check_failures(tmp_path):
+    workspace = init_workspace(
+        tmp_path,
+        "def divide(a, b):\n    return a / b\n",
+        pytest_test_for_divide(),
+    )
+    replacement = (
+        '[{"path": "calculator.py", '
+        '"old": "def divide(a, b):\\n    return a / b\\n", '
+        '"new": "def divide(a, b):\\n    if b == 0:\\n        raise ValueError(\\"division by zero\\")\\n    return a / b\\n"}]'
+    )
+    model = MockModel(["not a patch", "still not a patch", replacement])
+
+    result = make_agent(workspace, tmp_path, model, max_iterations=3).run("Fix tests.")
+
+    assert result.success
+    assert result.final_patch_command == "git diff --"
+    assert model.calls == 3
+    assert [record.mode for record in result.iterations] == ["patch", "patch", "replacement"]
+    assert not result.iterations[0].apply_check_success
+    assert not result.iterations[1].apply_check_success
+    assert result.iterations[2].replacement_raw_output == replacement
+    assert result.iterations[2].cleaned_patch.startswith("diff --git a/calculator.py b/calculator.py")
+    assert result.iterations[2].model_output_type == "replacement"
+    assert result.iterations[2].patch_command == "git diff --"
+    assert result.iterations[2].replacement_success is True
+    assert result.iterations[2].replacement_edits == [
+        {
+            "path": "calculator.py",
+            "old": "def divide(a, b):\n    return a / b\n",
+            "new": (
+                "def divide(a, b):\n"
+                "    if b == 0:\n"
+                "        raise ValueError(\"division by zero\")\n"
+                "    return a / b\n"
+            ),
+        }
+    ]
+    assert result.iterations[2].pytest_exit_code == 0
+
+
+def test_default_agent_starts_in_replacement_mode(tmp_path):
+    workspace = init_workspace(
+        tmp_path,
+        "def divide(a, b):\n    return a / b\n",
+        pytest_test_for_divide(),
+    )
+    replacement = (
+        '[{"path": "calculator.py", '
+        '"old": "def divide(a, b):\\n    return a / b\\n", '
+        '"new": "def divide(a, b):\\n    if b == 0:\\n        raise ValueError(\\"division by zero\\")\\n    return a / b\\n"}]'
+    )
+    model = MockModel([replacement])
+
+    result = DefaultAgent(
+        model=model,
+        sandbox=LocalSandbox(workspace),
+        patch_output_dir=tmp_path / "patches",
+        max_iterations=1,
+    ).run("Fix tests.")
+
+    assert result.success
+    assert [record.mode for record in result.iterations] == ["replacement"]
+    assert result.iterations[0].model_output_type == "replacement"
+    assert result.iterations[0].patch_command == "git diff --"
+
+
+def test_replacement_failure_feedback_is_sent_to_next_iteration(tmp_path):
+    test_source = (
+        "from ambiguous import choose_second\n\n"
+        "def test_choose_second():\n"
+        "    assert choose_second() is True\n"
+    )
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / "ambiguous.py").write_text(
+        "def choose_first():\n"
+        "    return False\n\n\n"
+        "def choose_second():\n"
+        "    return False\n",
+        encoding="utf-8",
+    )
+    (workspace / "test_ambiguous.py").write_text(test_source, encoding="utf-8")
+    subprocess.run(["git", "init"], cwd=workspace, check=True, capture_output=True)
+    subprocess.run(["git", "add", "."], cwd=workspace, check=True, capture_output=True)
+    first_replacement = '[{"path": "ambiguous.py", "old": "return False", "new": "return True"}]'
+    second_replacement = (
+        '[{"path": "ambiguous.py", "old": "return False", "new": "return True", "start_line": 6}]'
+    )
+    model = MockModel([first_replacement, second_replacement])
+
+    result = DefaultAgent(
+        model=model,
+        sandbox=LocalSandbox(workspace),
+        patch_output_dir=tmp_path / "patches",
+        max_iterations=2,
+    ).run("Fix tests.")
+
+    assert result.success
+    assert len(result.iterations) == 2
+    assert result.iterations[0].replacement_success is False
+    assert "appears multiple times" in (result.iterations[0].replacement_error or "")
+    assert "appears multiple times" in model.prompts[1]
+    assert "start_line" in model.prompts[1]
+    assert result.iterations[1].replacement_success is True
+    assert result.iterations[1].replacement_edits == [
+        {
+            "path": "ambiguous.py",
+            "old": "return False",
+            "new": "return True",
+            "start_line": 6,
+        }
+    ]
+
+
+def test_stays_in_replacement_mode_after_replacement_pytest_failure(tmp_path):
+    test_source = (
+        "import pytest\n"
+        "from calc_multi import divide, increment\n\n"
+        "def test_divide_regular_case():\n"
+        "    assert divide(6, 2) == 3\n\n"
+        "def test_divide_by_zero_raises_value_error():\n"
+        "    with pytest.raises(ValueError):\n"
+        "        divide(1, 0)\n\n"
+        "def test_increment():\n"
+        "    assert increment(2) == 3\n"
+    )
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / "calc_multi.py").write_text(
+        "def divide(a, b):\n    return a / b\n\n\ndef increment(value):\n    return value - 1\n",
+        encoding="utf-8",
+    )
+    (workspace / "test_calc_multi.py").write_text(test_source, encoding="utf-8")
+    subprocess.run(["git", "init"], cwd=workspace, check=True, capture_output=True)
+    subprocess.run(["git", "add", "."], cwd=workspace, check=True, capture_output=True)
+    first_replacement = (
+        '[{"path": "calc_multi.py", '
+        '"old": "def divide(a, b):\\n    return a / b\\n", '
+        '"new": "def divide(a, b):\\n    if b == 0:\\n        raise ValueError(\\"division by zero\\")\\n    return a / b\\n"}]'
+    )
+    second_replacement = (
+        '[{"path": "calc_multi.py", '
+        '"old": "def increment(value):\\n    return value - 1\\n", '
+        '"new": "def increment(value):\\n    return value + 1\\n"}]'
+    )
+    model = MockModel(["not a patch", "still not a patch", first_replacement, second_replacement])
+
+    result = make_agent(workspace, tmp_path, model, max_iterations=4).run("Fix tests.")
+
+    assert result.success is True
+    assert [record.mode for record in result.iterations] == [
+        "patch",
+        "patch",
+        "replacement",
+        "replacement",
+    ]
+    assert result.iterations[2].model_output_type == "replacement"
+    assert result.iterations[3].model_output_type == "replacement"
+    assert result.iterations[2].replacement_edits
+    assert result.iterations[3].replacement_edits
+    assert result.iterations[2].pytest_exit_code == 1
+    assert result.iterations[3].pytest_exit_code == 0
+
+    trace_path = save_trace(result, tmp_path / "traces")
+    trace = json.loads(trace_path.read_text(encoding="utf-8"))
+    assert trace["iterations"][2]["model_output_type"] == "replacement"
+    assert trace["iterations"][3]["model_output_type"] == "replacement"
+
+
+def test_patch_applies_but_pytest_fails_then_second_patch_success(tmp_path):
+    workspace = init_workspace(
+        tmp_path,
+        "def divide(a, b):\n    return a / b\n",
+        pytest_test_for_divide(),
+    )
+    first_patch = """--- a/calculator.py
++++ b/calculator.py
+@@ -1,2 +1,4 @@
+ def divide(a, b):
++    if b == 0:
++        return 0
+     return a / b
+"""
+    second_patch = """--- a/calculator.py
++++ b/calculator.py
+@@ -1,4 +1,4 @@
+ def divide(a, b):
+     if b == 0:
+-        return 0
++        raise ValueError("division by zero")
+     return a / b
+"""
+    model = MockModel([first_patch, second_patch])
+
+    result = make_agent(workspace, tmp_path, model, max_iterations=2).run("Fix tests.")
+
+    assert result.success
+    assert len(result.iterations) == 2
+    assert result.iterations[0].apply_success
+    assert result.iterations[0].pytest_exit_code == 1
+    assert result.iterations[0].pytest_output
+    assert "return 0" not in (workspace / "calculator.py").read_text(encoding="utf-8")
+    assert result.iterations[1].pytest_exit_code == 0
+
+
+def test_stops_after_max_iterations(tmp_path):
+    workspace = init_workspace(
+        tmp_path,
+        "def divide(a, b):\n    return a / b\n",
+        pytest_test_for_divide(),
+    )
+    model = MockModel(["not a patch", "still not a patch"])
+
+    result = make_agent(workspace, tmp_path, model, max_iterations=2).run("Fix tests.")
+
+    assert not result.success
+    assert model.calls == 2
+    assert len(result.iterations) == 2
+    assert result.final_patch_command == "git apply --check -"
+    assert result.iterations[0].patch_command == "git apply --check -"
+    assert result.iterations[1].patch_command == "git apply --check -"
+    assert "reached max_iterations=2" in (result.error or "")
+
+
+def test_initial_pytest_passes_does_not_call_model(tmp_path):
+    workspace = init_workspace(
+        tmp_path,
+        "def add(a, b):\n    return a + b\n",
+        "from calculator import add\n\n"
+        "def test_add():\n"
+        "    assert add(2, 3) == 5\n",
+    )
+    model = MockModel([divide_zero_patch()])
+
+    result = make_agent(workspace, tmp_path, model, max_iterations=3).run("Fix tests.")
+
+    assert result.success
+    assert model.calls == 0
+    assert result.iterations == []
