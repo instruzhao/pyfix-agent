@@ -43,6 +43,25 @@ The default workspace and task are also configured there.
 python -u -m pyfixagent.main
 ```
 
+v0.2.1 adds a small argparse-based CLI so common run settings can be overridden without editing `configs/default.yaml`:
+
+```bash
+python -m pyfixagent.main --help
+python -m pyfixagent.main --workspace workspaces/demo_project
+python -m pyfixagent.main --mode replacement
+python -m pyfixagent.main --mode patch
+python -m pyfixagent.main --context-strategy traceback
+python -m pyfixagent.main --context-strategy full
+python -m pyfixagent.main --max-iterations 3
+python -m pyfixagent.main --config configs/default.yaml
+```
+
+Configuration priority is:
+
+```text
+CLI arguments > configs/default.yaml > code defaults
+```
+
 The command scans the workspace configured in `configs/default.yaml`. In the current default config this is:
 
 ```text
@@ -121,21 +140,28 @@ Trace JSON records structured diagnostics for each iteration:
 }
 ```
 
-## Reset The Demo
+## Reset Example Workspaces
 
-The demo workspace is a git repository. To restore it to the committed failing baseline:
+The example workspaces are committed as ordinary directories and are intentionally kept as failing baselines for Agent repair tests. To restore them:
 
 ```bash
-python scripts/reset_demo.py
+python scripts/reset_demo.py --workspace demo
+python scripts/reset_demo.py --workspace sklearn
+python scripts/reset_demo.py --all
 ```
 
 To also remove generated patches and traces:
 
 ```bash
-python scripts/reset_demo.py --clean-outputs
+python scripts/reset_demo.py --all --clean-outputs
 ```
 
-The reset script is guarded so it only resets `workspaces/demo_project`.
+A typical local demo run is:
+
+```bash
+python scripts/reset_demo.py --all
+python -m pyfixagent.main --workspace workspaces/demo_project --mode replacement --context-strategy traceback
+```
 
 ## Repair Strategy
 
@@ -158,7 +184,7 @@ The current `DefaultAgent` constructor defaults to `replacement` mode:
 initial_mode: str = "replacement"
 ```
 
-`pyfixagent.main` does not currently expose `initial_mode` through `configs/default.yaml`, so the default command-line run starts in `replacement` mode. If an agent is constructed with `initial_mode="patch"`, then patch mode is used first; after two consecutive patch check failures, the agent switches to `replacement` mode for the rest of that run.
+`pyfixagent.main` reads `agent.initial_mode` from `configs/default.yaml`, and `--mode replacement` or `--mode patch` can override it for a single run. If an agent starts with `initial_mode="patch"`, then patch mode is used first; after two consecutive patch check failures, the agent switches to `replacement` mode for the rest of that run.
 
 The replacement strategy is more stable for small, exact edits because the program performs precise string replacement instead of trusting model-written hunk line numbers. It is only intended for narrow changes. Replacement mode rejects edits under `tests/`, rejects absolute paths or paths that escape the workspace, rejects non-`.py` files, and requires each `old` text fragment to match exactly once unless `start_line` disambiguates repeated matches.
 
