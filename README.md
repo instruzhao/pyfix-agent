@@ -79,6 +79,8 @@ Run the project unit tests:
 
     pytest
 
+PyFixAgent includes a GitHub Actions workflow that runs the test suite on push and pull requests.
+
 Reset generated demo state and remove temporary patches/traces:
 
     python scripts/reset_demo.py --all --clean-outputs
@@ -122,6 +124,12 @@ Structured trace is the main v0.2.x visibility feature. Each run records enough 
 See `docs/trace.md` for the field guide.
 
 Traces may contain source code, model output, pytest logs, local paths, and environment details. Do not publish traces that contain secrets or private code.
+
+You can summarize a structured trace JSON with:
+
+    python scripts/summarize_trace.py outputs/traces/run_xxx.json
+
+The summary reports final status, iteration count, failure deltas, selected context size, modified files, and model metadata.
 
 ## Demo Benchmark
 

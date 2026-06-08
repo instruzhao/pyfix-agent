@@ -26,19 +26,19 @@ def test_render_selected_context_includes_reasons_and_ranges():
 
 
 def test_context_trace_metadata_is_serializable_shape():
+    prompt_chars = 123
+    snippet = SelectedSnippet(
+        path="app.py",
+        reason="fallback_full_context",
+        start_line=1,
+        end_line=2,
+        content="x = 1\n",
+    )
     context = SelectedContext(
         strategy="traceback",
         fallback_used=True,
-        prompt_chars=123,
-        snippets=[
-            SelectedSnippet(
-                path="app.py",
-                reason="fallback_full_context",
-                start_line=1,
-                end_line=2,
-                content="x = 1\n",
-            )
-        ],
+        prompt_chars=prompt_chars,
+        snippets=[snippet],
     )
 
     metadata = context_trace_metadata(context)
@@ -46,23 +46,23 @@ def test_context_trace_metadata_is_serializable_shape():
     assert metadata == {
         "strategy": "traceback",
         "fallback_used": True,
-        "prompt_chars": 123,
+        "prompt_chars": prompt_chars,
         "dependency_analysis": False,
         "stats": {
             "selected_file_count": 1,
             "selected_snippet_count": 1,
-            "selected_context_chars": 6,
+            "selected_context_chars": len(snippet.content),
             "pytest_output_chars": None,
-            "prompt_chars": 123,
+            "prompt_chars": prompt_chars,
             "fallback_used": True,
         },
         "selected_files": [
             {
-                "path": "app.py",
-                "reason": "fallback_full_context",
-                "selection_rule": "fallback_full_context",
+                "path": snippet.path,
+                "reason": snippet.reason,
+                "selection_rule": snippet.reason,
                 "dependency_analysis": False,
-                "line_range": [1, 2],
+                "line_range": [snippet.start_line, snippet.end_line],
             }
         ],
     }

@@ -90,6 +90,14 @@ It includes method, success flag, command/check information, errors, and the gen
 
 `model_call` records provider/model metadata and call duration when available. Real API keys are not stored intentionally, but traces should still be checked before publishing.
 
+## Trace Summary Script
+
+Use `scripts/summarize_trace.py` to print a compact human-readable summary of a structured trace:
+
+    python scripts/summarize_trace.py outputs/traces/run_xxx.json
+
+The script uses only the Python standard library. It reads the trace JSON, reports final status, iteration count, failure deltas, selected context size, modified files, and model metadata, and leaves the trace file unchanged. Missing optional fields are shown as `N/A` so older traces can still be inspected.
+
 ## Benchmark Metrics
 
 The v0.2.2 benchmark reads metrics directly from trace JSON. Top-level `final_summary` fields provide initial failures, final failures, iterations used, modified files, and final status.
