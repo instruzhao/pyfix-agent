@@ -125,12 +125,14 @@ Traces may contain source code, model output, pytest logs, local paths, and envi
 
 ## Demo Benchmark
 
-v0.2.2 includes a small local demo benchmark summary in `docs/benchmark.md`. It covers:
+v0.2.2 includes a small benchmark comparing traceback-driven context selection with full-workspace context on resettable demo workspaces. The benchmark tracks prompt size, selected files, iterations, failure deltas, modified files, and final test status.
+
+It covers:
 
 - `workspaces/demo_project`
 - `workspaces/sklearn_iris_tree_project`
 
-This is not an academic benchmark and is not comparable to SWE-bench. It is a lightweight demonstration that the local pytest-driven loop can move the included demo workspaces from failing tests to passing tests while recording explainable trace data.
+See `docs/benchmark.md` for detailed results. This benchmark compares context strategy behavior; it is not an academic benchmark, not comparable to SWE-bench, and not a claim of production-grade repair ability.
 
 ## Limitations
 
