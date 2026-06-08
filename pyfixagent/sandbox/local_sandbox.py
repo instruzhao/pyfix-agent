@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+import os
 from pathlib import Path
 import subprocess
 import time
@@ -37,9 +38,12 @@ class LocalSandbox:
             )
 
         try:
+            env = os.environ.copy()
+            env["PYTHONDONTWRITEBYTECODE"] = "1"
             completed = subprocess.run(
                 command,
                 cwd=self.workspace,
+                env=env,
                 timeout=timeout_seconds,
                 capture_output=True,
                 text=True,
