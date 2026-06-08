@@ -126,6 +126,7 @@ def apply_replacements(workspace: str | Path, edits: list[ReplacementEdit]) -> R
     try:
         for target, content in planned_changes.items():
             target.write_text(content, encoding="utf-8", newline="\n")
+            _remove_python_bytecode_cache(target)
     except Exception as exc:
         return ReplacementResult(success=False, changed_files=[], error=f"failed to write replacements: {exc}")
 
@@ -193,3 +194,12 @@ def _resolve_target(workspace: Path, raw_path: str) -> Path:
 
 def _is_tests_path(path: Path) -> bool:
     return path.parts[:1] == ("tests",)
+
+
+def _remove_python_bytecode_cache(source_path: Path) -> None:
+    cache_dir = source_path.parent / "__pycache__"
+    if not cache_dir.exists():
+        return
+
+    for pyc_path in cache_dir.glob(f"{source_path.stem}.*.pyc"):
+        pyc_path.unlink()

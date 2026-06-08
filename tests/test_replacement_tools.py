@@ -73,6 +73,25 @@ def test_apply_replacements_replaces_single_unique_old_text(tmp_path):
     assert target.read_text(encoding="utf-8") == "def ok():\n    return True\n"
 
 
+def test_apply_replacements_removes_stale_bytecode_cache(tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    target = workspace / "app.py"
+    target.write_text("def ok():\n    return False\n", encoding="utf-8")
+    cache_dir = workspace / "__pycache__"
+    cache_dir.mkdir()
+    pyc_path = cache_dir / "app.cpython-311.pyc"
+    pyc_path.write_bytes(b"stale bytecode")
+
+    result = apply_replacements(
+        workspace,
+        [ReplacementEdit(path="app.py", old="return False", new="return True")],
+    )
+
+    assert result.success
+    assert not pyc_path.exists()
+
+
 def test_apply_replacements_fails_when_old_is_missing_without_modifying_file(tmp_path):
     workspace = tmp_path / "workspace"
     workspace.mkdir()
