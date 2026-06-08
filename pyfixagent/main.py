@@ -1,4 +1,5 @@
 from pathlib import Path
+import argparse
 from dataclasses import asdict
 from datetime import datetime
 import json
@@ -11,6 +12,20 @@ from pyfixagent.sandbox.local_sandbox import LocalSandbox
 from pyfixagent.schemas import AgentResult
 from pyfixagent.trace import collect_environment, final_summary
 from pyfixagent.utils.config import load_config
+
+
+DEFAULT_CONFIG_PATH = "configs/default.yaml"
+DEFAULT_WORKSPACE = "workspaces/sklearn_iris_tree_project"
+DEFAULT_PATCH_OUTPUT_DIR = "outputs/patches"
+DEFAULT_TRACE_OUTPUT_DIR = "outputs/traces"
+DEFAULT_TASK = "Fix the failing tests in this small Python project."
+DEFAULT_INITIAL_MODE = "replacement"
+DEFAULT_MAX_ITERATIONS = 5
+DEFAULT_CONTEXT_STRATEGY = "traceback"
+DEFAULT_CONTEXT_LINE_WINDOW = 40
+DEFAULT_CONTEXT_MAX_FILES = 6
+DEFAULT_CONTEXT_FALLBACK_TO_FULL = True
+DEFAULT_CONTEXT_INCLUDE_TESTS = True
 
 
 def load_dotenv_file(path: Path) -> None:
@@ -40,22 +55,89 @@ def save_trace(result: AgentResult, output_dir: Path) -> Path:
     return trace_path
 
 
-def main() -> None:
-    project_root = Path(__file__).resolve().parents[1]
-    load_dotenv_file(project_root / ".env")
-    config = load_config(project_root / "configs" / "default.yaml")
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Run PyFixAgent on a configured local Python workspace.")
+    parser.add_argument(
+        "--config",
+        default=DEFAULT_CONFIG_PATH,
+        help=f"Path to a YAML config file. Defaults to {DEFAULT_CONFIG_PATH}.",
+    )
+    parser.add_argument("--workspace", help="Workspace path to repair, relative to project root or absolute.")
+    parser.add_argument("--task", help="Repair task instruction to send to the model.")
+    parser.add_argument(
+        "--mode",
+        choices=["replacement", "patch"],
+        help="Initial repair mode. Overrides agent.initial_mode in config.",
+    )
+    parser.add_argument(
+        "--context-strategy",
+        choices=["traceback", "full"],
+        help="Context selection strategy. Overrides context.strategy in config.",
+    )
+    parser.add_argument(
+        "--max-iterations",
+        type=int,
+        help="Maximum repair iterations. Overrides agent.max_iterations in config.",
+    )
+    return parser.parse_args(argv)
 
-    workspace = project_root / config["paths"]["workspace"]
-    patch_output_dir = project_root / config["paths"]["patch_output_dir"]
-    trace_output_dir = project_root / config["paths"].get("trace_output_dir", "outputs/traces")
 
-    model_config = config.get("model", {})
+def resolve_runtime_config(project_root: Path, args: argparse.Namespace) -> dict:
+    config_path = _resolve_path(project_root, args.config)
+    config = load_config(config_path)
+    paths_config = config.get("paths", {})
+    agent_config = config.get("agent", {})
+    context_config = config.get("context", {})
+    sandbox_config = config.get("sandbox", {})
+
+    workspace = _resolve_path(project_root, args.workspace or paths_config.get("workspace", DEFAULT_WORKSPACE))
+    return {
+        "config_path": config_path,
+        "config": config,
+        "workspace": workspace,
+        "patch_output_dir": _resolve_path(
+            project_root,
+            paths_config.get("patch_output_dir", DEFAULT_PATCH_OUTPUT_DIR),
+        ),
+        "trace_output_dir": _resolve_path(
+            project_root,
+            paths_config.get("trace_output_dir", DEFAULT_TRACE_OUTPUT_DIR),
+        ),
+        "task": args.task or agent_config.get("task", DEFAULT_TASK),
+        "initial_mode": args.mode or agent_config.get("initial_mode", DEFAULT_INITIAL_MODE),
+        "max_iterations": int(
+            args.max_iterations
+            if args.max_iterations is not None
+            else agent_config.get("max_iterations", DEFAULT_MAX_ITERATIONS)
+        ),
+        "context_strategy": args.context_strategy or context_config.get("strategy", DEFAULT_CONTEXT_STRATEGY),
+        "context_line_window": int(context_config.get("line_window", DEFAULT_CONTEXT_LINE_WINDOW)),
+        "context_max_files": int(context_config.get("max_files", DEFAULT_CONTEXT_MAX_FILES)),
+        "context_fallback_to_full": _as_bool(
+            context_config.get("fallback_to_full_context", DEFAULT_CONTEXT_FALLBACK_TO_FULL)
+        ),
+        "context_include_tests": _as_bool(context_config.get("include_tests", DEFAULT_CONTEXT_INCLUDE_TESTS)),
+        "sandbox_timeout": int(sandbox_config.get("timeout_seconds", 30)),
+    }
+
+
+def build_litellm_model_name(model_config: dict) -> str:
     model_name = model_config.get("name", "gpt-4o-mini")
     provider = model_config.get("provider")
     if provider == "openai_compatible":
-        litellm_model_name = f"openai/{model_name}"
-    else:
-        litellm_model_name = f"{provider}/{model_name}" if provider else model_name
+        return f"openai/{model_name}"
+    return f"{provider}/{model_name}" if provider else model_name
+
+
+def main(argv: list[str] | None = None) -> None:
+    project_root = Path(__file__).resolve().parents[1]
+    args = parse_args(argv)
+    load_dotenv_file(project_root / ".env")
+    runtime = resolve_runtime_config(project_root, args)
+    config = runtime["config"]
+
+    model_config = config.get("model", {})
+    litellm_model_name = build_litellm_model_name(model_config)
 
     api_key_env = model_config.get("api_key_env")
     api_key = os.getenv(api_key_env) if api_key_env else None
@@ -69,33 +151,40 @@ def main() -> None:
         extra_body={"enable_thinking": bool(model_config.get("enable_thinking", False))},
     )
 
-    sandbox_config = config.get("sandbox", {})
     sandbox = LocalSandbox(
-        workspace=workspace,
-        timeout_seconds=int(sandbox_config.get("timeout_seconds", 30)),
+        workspace=runtime["workspace"],
+        timeout_seconds=runtime["sandbox_timeout"],
     )
 
-    agent_config = config.get("agent", {})
-    context_config = config.get("context", {})
     agent = DefaultAgent(
         model=model,
         sandbox=sandbox,
-        patch_output_dir=patch_output_dir,
-        max_iterations=int(agent_config.get("max_iterations", 1)),
-        context_strategy=context_config.get("strategy", "traceback"),
-        context_line_window=int(context_config.get("line_window", 40)),
-        context_max_files=int(context_config.get("max_files", 6)),
-        context_fallback_to_full=bool(context_config.get("fallback_to_full_context", True)),
-        context_include_tests=bool(context_config.get("include_tests", True)),
+        patch_output_dir=runtime["patch_output_dir"],
+        max_iterations=runtime["max_iterations"],
+        initial_mode=runtime["initial_mode"],
+        context_strategy=runtime["context_strategy"],
+        context_line_window=runtime["context_line_window"],
+        context_max_files=runtime["context_max_files"],
+        context_fallback_to_full=runtime["context_fallback_to_full"],
+        context_include_tests=runtime["context_include_tests"],
     )
-    task = agent_config.get(
-        "task",
-        "Fix the failing tests in this small Python project.",
-    )
-    result = agent.run(task)
-    trace_path = save_trace(result, trace_output_dir)
+    result = agent.run(runtime["task"])
+    trace_path = save_trace(result, runtime["trace_output_dir"])
     print(f"[agent] trace saved to {trace_path}")
     pprint(result)
+
+
+def _resolve_path(project_root: Path, raw_path: str | Path) -> Path:
+    path = Path(raw_path)
+    return path if path.is_absolute() else project_root / path
+
+
+def _as_bool(value) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(value)
 
 
 if __name__ == "__main__":

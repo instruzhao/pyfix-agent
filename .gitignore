@@ -7,8 +7,10 @@ __pycache__/
 .venv/
 venv/
 .env
+.env.*
+!.env.example
 *.egg-info/
-outputs/patches/*.patch
+outputs/patches/*
 outputs/traces/*
 outputs/*.log
 !outputs/patches/.gitkeep
