@@ -1,199 +1,158 @@
 # PyFixAgent
 
-PyFixAgent is a small, beginner-friendly Coding Agent for test-driven repair in local Python projects. It is a prototype, not a production-grade Coding Agent.
+PyFixAgent is a lightweight test-driven repair agent for small local Python projects. It runs pytest, collects failure output, selects relevant source context, asks an LLM for a small code edit, applies the edit, reruns pytest, and records a structured trace of the repair attempt.
 
-Current capabilities:
+It is a prototype for demonstrating the repair loop and traceability. It is not a production-grade coding agent, sandbox, benchmark platform, or general automated software engineering system.
 
-- run pytest in a configured local workspace
-- read the workspace file tree
-- select traceback-driven Python context snippets, or fall back to full Python source context
-- call a LiteLLM-backed model
-- ask the model for either JSON old/new replacements or a unified diff patch
-- save patches under `outputs/patches`
-- check unified diff patches with `git apply --check -`
-- apply valid unified diff patches with `git apply -`
-- apply JSON replacements with exact string matching
-- rerun pytest after each applied repair
-- retry with model feedback for a limited number of iterations
-- save full run traces under `outputs/traces`, including context selection metadata
-- provide a small `patch_eval` package for patch parsing, normalization, validation, and `git apply --check` evaluation
+## Overview
 
-The project intentionally has no Web UI, Docker support, multi-agent workflow, vector database, GitHub issue integration, or full benchmark/evaluation suite.
+The default v0.2.x workflow is intentionally small:
 
-## Install
+    run pytest
+    collect failure output
+    select traceback-driven context
+    prompt the model through LiteLLM
+    apply replacement or patch edits
+    rerun pytest
+    record structured trace
+    iterate until tests pass or max iterations is reached
 
-```bash
-python -m pip install -e .
-```
+The repository includes two resettable demo workspaces:
 
-## Configure Model Access
+- `workspaces/demo_project`
+- `workspaces/sklearn_iris_tree_project`
+
+## What PyFixAgent Does
+
+- Runs pytest inside a configured local workspace.
+- Parses pytest failures and traceback output.
+- Selects relevant Python files using the default `traceback` context strategy.
+- Calls a LiteLLM-backed model.
+- Applies either JSON replacement edits or unified diff patches.
+- Verifies each edit by rerunning pytest.
+- Stores generated patches under `outputs/patches`.
+- Stores structured traces under `outputs/traces`.
+
+## Features
+
+- Test-driven repair loop for local Python projects.
+- Default `replacement` mode for small exact old/new edits.
+- Optional `patch` mode for unified diff style repairs.
+- Default `traceback` context strategy.
+- Fallback `full` context strategy for small workspaces.
+- Structured trace fields for test summaries, failure deltas, model output, apply results, edit summaries, model call metadata, environment, and final summary.
+- CLI overrides for workspace, mode, context strategy, task, config path, and max iterations.
+- Reset script for restoring demo workspaces to their committed failing baselines.
+
+## Quick Start
+
+Install the project in editable mode:
+
+    python -m pip install -e .
 
 Copy `.env.example` to `.env` and set the API key required by your model provider. The default config uses an OpenAI-compatible DashScope endpoint:
 
-```bash
-DASHSCOPE_API_KEY=your_api_key_here
-```
+    DASHSCOPE_API_KEY=your_api_key_here
 
-Model settings, timeouts, context strategy, and `agent.max_iterations` are configured in `configs/default.yaml`.
-The default workspace and task are also configured there.
+Then reset the examples and run the default configured workspace:
 
-## Run The Agent
+    python scripts/reset_demo.py --all
+    python -m pyfixagent.main
 
-```bash
-python -u -m pyfixagent.main
-```
+## Example Commands
 
-v0.2.1 adds a small argparse-based CLI so common run settings can be overridden without editing `configs/default.yaml`:
+Show CLI options:
 
-```bash
-python -m pyfixagent.main --help
-python -m pyfixagent.main --workspace workspaces/demo_project
-python -m pyfixagent.main --mode replacement
-python -m pyfixagent.main --mode patch
-python -m pyfixagent.main --context-strategy traceback
-python -m pyfixagent.main --context-strategy full
-python -m pyfixagent.main --max-iterations 3
-python -m pyfixagent.main --config configs/default.yaml
-```
+    python -m pyfixagent.main --help
+
+Run the billing demo:
+
+    python scripts/reset_demo.py --all
+    python -m pyfixagent.main --workspace workspaces/demo_project --mode replacement --context-strategy traceback
+
+Run the sklearn iris demo:
+
+    python scripts/reset_demo.py --all
+    python -m pyfixagent.main --workspace workspaces/sklearn_iris_tree_project --mode replacement --context-strategy traceback
+
+Run the project unit tests:
+
+    pytest
+
+Reset generated demo state and remove temporary patches/traces:
+
+    python scripts/reset_demo.py --all --clean-outputs
 
 Configuration priority is:
 
-```text
-CLI arguments > configs/default.yaml > code defaults
-```
+    CLI arguments > configs/default.yaml > code defaults
 
-The command scans the workspace configured in `configs/default.yaml`. In the current default config this is:
+## Repair Modes
 
-```text
-workspaces/sklearn_iris_tree_project
-```
+`replacement` is the default mode. The model returns a JSON array of small edits with `path`, `old`, `new`, and optional `start_line`. PyFixAgent validates workspace paths, rejects edits outside the workspace, rejects test-file modifications, and requires exact old-text matching. This mode is designed for reliable small-scope edits.
 
-It runs pytest, sends the pytest output and selected Python context to the model, applies the requested repair, reruns pytest, and writes a trace JSON such as:
+`patch` is optional. The model returns a unified diff patch. PyFixAgent cleans the patch text, checks it with `git apply --check -`, applies it with `git apply -`, and then reruns pytest. If patch mode repeatedly fails validation, the agent can fall back to replacement mode.
 
-```text
-outputs/traces/run_20260607_195745.json
-```
+## Context Strategy
 
-By default, PyFixAgent parses pytest failures and selects a small window around relevant traceback files instead of sending every Python file. The default context settings are:
+The default context strategy is `traceback`. It selects files from:
 
-```yaml
-context:
-  strategy: traceback
-  line_window: 40
-  max_files: 6
-  fallback_to_full_context: true
-  include_tests: true
-```
+- failing test files
+- traceback source files
+- modules directly imported by failing tests
 
-Set `context.strategy: full` to use the older behavior that includes all `*.py` files in the configured workspace. Test files may be read as context so the model can understand expected behavior, but replacement mode still rejects modifications under `tests/`. The traceback strategy may also include modules directly imported by a failing test as `direct_test_import`; this is a lightweight context expansion, not a full import graph or dependency analysis.
+This is intentionally lightweight. It is not a full import graph, repository index, vector database, or RAG system. For very small workspaces, `--context-strategy full` can include all Python files instead.
 
-Trace JSON records structured diagnostics for each iteration:
+## Structured Trace
 
-```json
-{
-  "test_summary_before": {
-    "total": 6,
-    "passed": 3,
-    "failed": 3,
-    "skipped": 0,
-    "failed_tests": ["tests/test_data.py::test_load_data"]
-  },
-  "failure_delta": {
-    "fixed": [],
-    "remaining": ["tests/test_data.py::test_load_data"],
-    "new": []
-  },
-  "iteration_result": {
-    "status": "test_failed_after_apply",
-    "failure_type": "incomplete_fix",
-    "reason": "Repair was applied successfully, but pytest still failed."
-  },
-  "model_output": {
-    "mode": "replacement",
-    "parsed_success": true
-  },
-  "apply": {
-    "method": "replacement",
-    "success": true,
-    "generated_diff": "diff --git ..."
-  },
-  "context": {
-    "strategy": "traceback",
-    "dependency_analysis": false,
-    "stats": {
-      "selected_file_count": 2,
-      "selected_snippet_count": 2,
-      "selected_context_chars": 5120,
-      "pytest_output_chars": 7250,
-      "prompt_chars": 21438
-    },
-    "selected_files": [
-      {
-        "path": "tests/test_data.py",
-        "reason": "failing_test_file",
-        "selection_rule": "failing_test_file",
-        "dependency_analysis": false,
-        "line_range": [1, 45]
-      }
-    ]
-  }
-}
-```
+Structured trace is the main v0.2.x visibility feature. Each run records enough structured data to understand what happened without reading the full pytest log:
 
-## Reset Example Workspaces
+- `test_summary_before` and `test_summary_after`
+- `failure_delta`
+- `iteration_result`
+- `context`
+- `model_output`
+- `apply`
+- `generated_diff`
+- `edit_summary`
+- `model_call`
+- `environment`
+- `final_summary`
 
-The example workspaces are committed as ordinary directories and are intentionally kept as failing baselines for Agent repair tests. To restore them:
+See `docs/trace.md` for the field guide.
 
-```bash
-python scripts/reset_demo.py --workspace demo
-python scripts/reset_demo.py --workspace sklearn
-python scripts/reset_demo.py --all
-```
+Traces may contain source code, model output, pytest logs, local paths, and environment details. Do not publish traces that contain secrets or private code.
 
-To also remove generated patches and traces:
+## Demo Benchmark
 
-```bash
-python scripts/reset_demo.py --all --clean-outputs
-```
+v0.2.2 includes a small local demo benchmark summary in `docs/benchmark.md`. It covers:
 
-A typical local demo run is:
+- `workspaces/demo_project`
+- `workspaces/sklearn_iris_tree_project`
 
-```bash
-python scripts/reset_demo.py --all
-python -m pyfixagent.main --workspace workspaces/demo_project --mode replacement --context-strategy traceback
-```
+This is not an academic benchmark and is not comparable to SWE-bench. It is a lightweight demonstration that the local pytest-driven loop can move the included demo workspaces from failing tests to passing tests while recording explainable trace data.
 
-## Repair Strategy
+## Limitations
 
-PyFixAgent uses an incremental repair strategy. If a repair applies successfully but pytest still fails, the Agent does not roll back the workspace. It keeps the current modification, feeds the new pytest failure back to the model, and asks for an incremental repair. This is recorded in traces as:
+- Not a production-grade sandbox.
+- Designed for small local Python projects.
+- pytest is the main validation signal.
+- Context selection is lightweight.
+- No full repository indexing.
+- No vector database or RAG.
+- No complete dependency graph.
+- No GitHub PR or issue integration.
+- LLM output reliability is not guaranteed.
+- Traces can contain sensitive source code and logs.
 
-```json
-"workspace_strategy": "incremental_repair"
-```
+See `docs/limitations.md` for the full boundary statement.
 
-### Patch And Replacement Fallback
+## Roadmap
 
-PyFixAgent has two model output modes:
+Completed v0.2.x work includes the test-driven repair loop, replacement and patch modes, traceback-driven context selection, structured traces, CLI/config polish, resettable examples, and lightweight benchmark documentation.
 
-- `patch` mode: the model outputs a unified diff patch.
-- `replacement` mode: the model outputs JSON old/new replacement objects.
+Future work is listed in `docs/roadmap.md`. Items there are not implemented unless marked completed.
 
-The current `DefaultAgent` constructor defaults to `replacement` mode:
+## Project Status
 
-```python
-initial_mode: str = "replacement"
-```
-
-`pyfixagent.main` reads `agent.initial_mode` from `configs/default.yaml`, and `--mode replacement` or `--mode patch` can override it for a single run. If an agent starts with `initial_mode="patch"`, then patch mode is used first; after two consecutive patch check failures, the agent switches to `replacement` mode for the rest of that run.
-
-The replacement strategy is more stable for small, exact edits because the program performs precise string replacement instead of trusting model-written hunk line numbers. It is only intended for narrow changes. Replacement mode rejects edits under `tests/`, rejects absolute paths or paths that escape the workspace, rejects non-`.py` files, and requires each `old` text fragment to match exactly once unless `start_line` disambiguates repeated matches.
-
-In trace JSON, `raw_model_output` always means the raw model response. When `mode` or `model_output_type` is `patch`, it should be a unified diff. When `mode` or `model_output_type` is `replacement`, it should be a JSON array. Replacement traces also include `replacement_raw_output`, `replacement_edits`, `replacement_success`, and `replacement_error`. New v0.2.0 traces prefer the structured `model_output`, `apply`, and `generated_diff` fields so replacement-mode workspace diffs are not confused with model-generated patches. Top-level traces also include `environment` and `final_summary` for quick reading.
-
-Debug traces may contain source code, model output, and pytest logs. Do not commit them to a public repository. This is still not a production-grade security sandbox.
-
-## Sandbox Limits
-
-The local sandbox is not a production security sandbox. It is a small command runner with a command policy and subprocess timeout. It can block obvious dangerous commands, but it does not provide container isolation, filesystem isolation, network isolation, CPU limits, or memory limits.
-
-Use it only for local demo projects and trusted code.
+PyFixAgent v0.2.2 is a local prototype focused on documentation, traceability, benchmark explanation, and resume/interview presentation. The project deliberately avoids Web UI, Docker sandboxing, GitHub automation, RAG, multi-model voting, generated tests, AST editing, complex import graphs, and large-scale benchmark infrastructure.
