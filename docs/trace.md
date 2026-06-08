@@ -28,6 +28,8 @@ PyFixAgent writes structured JSON traces so a repair run can be inspected withou
 
 Traceback context is lightweight. It is not a complete import graph, repository index, or vector search result.
 
+For benchmark comparisons, `context.stats` is the main source for prompt and context size metrics. `selected_context_chars` measures the selected source snippets, while `prompt_chars` measures the full prompt sent for that iteration after pytest output, file tree, feedback, and context are combined.
+
 ## Test Summaries
 
 `test_summary_before` summarizes pytest status before an iteration's edit is applied. It includes total, passed, failed, skipped, and failed test node IDs when available.
@@ -87,6 +89,14 @@ It includes method, success flag, command/check information, errors, and the gen
 ## Model Call
 
 `model_call` records provider/model metadata and call duration when available. Real API keys are not stored intentionally, but traces should still be checked before publishing.
+
+## Benchmark Metrics
+
+The v0.2.2 benchmark reads metrics directly from trace JSON. Top-level `final_summary` fields provide initial failures, final failures, iterations used, modified files, and final status.
+
+Per-iteration `context.stats` fields provide selected file count, selected snippet count, selected context characters, pytest output characters, and prompt characters.
+
+`failure_delta` and `iteration_result` explain repair progress across iterations. They make it possible to distinguish a partial fix from no progress, a regression, an apply failure, invalid model output, or final success.
 
 ## Why Structured Trace Matters
 

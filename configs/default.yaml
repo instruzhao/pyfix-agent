@@ -18,7 +18,7 @@ sandbox:
 
 context:
   strategy: traceback
-  line_window: 40
+  line_window: 25
   max_files: 6
   fallback_to_full_context: true
   include_tests: true

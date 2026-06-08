@@ -10,7 +10,7 @@ def test_default_config_matches_documented_defaults():
     assert runtime["initial_mode"] == "replacement"
     assert runtime["context_strategy"] == "traceback"
     assert runtime["max_iterations"] == 5
-    assert runtime["context_line_window"] == 40
+    assert runtime["context_line_window"] == 25
     assert runtime["context_max_files"] == 6
     assert runtime["context_fallback_to_full"] is True
     assert runtime["context_include_tests"] is True

@@ -64,7 +64,9 @@ The default strategy is `traceback`. It is lightweight and based on pytest failu
 
 This is not a complete import graph, repository index, or RAG system. The strategy is meant to keep small demo prompts focused on files likely to explain the current failure.
 
-The `full` strategy is available for small workspaces and includes all Python files.
+The `full` strategy is available for small workspaces and includes all Python files in the workspace. It gives the model broader context, but it can include unrelated code and larger prompts.
+
+The v0.2.2 benchmark compares these two context strategies on the resettable demo workspaces with `context.line_window` set to 25 for traceback snippets. It focuses on selected file counts, selected context characters, prompt characters, failure deltas, iteration results, and final pytest status.
 
 ## Structured Trace
 
