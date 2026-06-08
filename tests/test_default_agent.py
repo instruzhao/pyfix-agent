@@ -66,6 +66,23 @@ def test_first_patch_success_and_pytest_passes(tmp_path):
     assert len(result.iterations) == 1
     record = result.iterations[0]
     assert record.raw_model_output == divide_zero_patch()
+    assert "Selected context strategy:" in record.prompt
+    assert record.context is not None
+    assert record.context["strategy"] == "traceback"
+    assert record.context["dependency_analysis"] is False
+    assert record.context["stats"]["selected_file_count"] >= 1
+    assert record.context["selected_files"]
+    assert all(item["reason"] in {"failing_test_file", "traceback_source_file", "direct_test_import"} for item in record.context["selected_files"])
+    assert record.test_summary_before is not None
+    assert record.test_summary_after is not None
+    assert record.failure_delta is not None
+    assert record.iteration_result["failure_type"] == "success"
+    assert record.generated_diff.startswith("diff --git")
+    assert record.model_output["mode"] == "patch"
+    assert record.apply["method"] == "patch"
+    assert record.apply["success"] is True
+    assert record.edit_summary["modified_files"] == ["calculator.py"]
+    assert record.model_call["provider"] == "mock"
     assert "raise ValueError" in record.cleaned_patch
     assert record.cleaned_patch.startswith("diff --git a/calculator.py b/calculator.py")
     assert record.apply_check_success
@@ -157,6 +174,9 @@ def test_default_agent_starts_in_replacement_mode(tmp_path):
     ).run("Fix tests.")
 
     assert result.success
+    assert result.environment is not None
+    assert result.final_summary is not None
+    assert result.final_summary["status"] == "passed"
     assert [record.mode for record in result.iterations] == ["replacement"]
     assert result.iterations[0].model_output_type == "replacement"
     assert result.iterations[0].patch_command == "git diff --"
@@ -263,6 +283,13 @@ def test_stays_in_replacement_mode_after_replacement_pytest_failure(tmp_path):
     trace = json.loads(trace_path.read_text(encoding="utf-8"))
     assert trace["iterations"][2]["model_output_type"] == "replacement"
     assert trace["iterations"][3]["model_output_type"] == "replacement"
+    assert trace["iterations"][2]["context"]["strategy"] == "traceback"
+    assert trace["iterations"][2]["context"]["prompt_chars"] > 0
+    assert trace["iterations"][2]["model_output"]["parsed_edits"] == trace["iterations"][2]["replacement_edits"]
+    assert trace["iterations"][2]["apply"]["method"] == "replacement"
+    assert trace["iterations"][2]["generated_diff"] == trace["iterations"][2]["apply"]["generated_diff"]
+    assert trace["environment"]["python"]
+    assert trace["final_summary"]["status"] == "passed"
 
 
 def test_patch_applies_but_pytest_fails_then_second_patch_success(tmp_path):

@@ -9,6 +9,7 @@ from pyfixagent.agent.default_agent import DefaultAgent
 from pyfixagent.models.litellm_model import LiteLLMModel
 from pyfixagent.sandbox.local_sandbox import LocalSandbox
 from pyfixagent.schemas import AgentResult
+from pyfixagent.trace import collect_environment, final_summary
 from pyfixagent.utils.config import load_config
 
 
@@ -26,6 +27,10 @@ def load_dotenv_file(path: Path) -> None:
 
 def save_trace(result: AgentResult, output_dir: Path) -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)
+    if result.environment is None:
+        result.environment = collect_environment(result.workspace)
+    if result.final_summary is None:
+        result.final_summary = final_summary(result)
     trace_path = output_dir / f"run_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
     trace_path.write_text(
         json.dumps(asdict(result), ensure_ascii=False, indent=2),
@@ -71,11 +76,17 @@ def main() -> None:
     )
 
     agent_config = config.get("agent", {})
+    context_config = config.get("context", {})
     agent = DefaultAgent(
         model=model,
         sandbox=sandbox,
         patch_output_dir=patch_output_dir,
         max_iterations=int(agent_config.get("max_iterations", 1)),
+        context_strategy=context_config.get("strategy", "traceback"),
+        context_line_window=int(context_config.get("line_window", 40)),
+        context_max_files=int(context_config.get("max_files", 6)),
+        context_fallback_to_full=bool(context_config.get("fallback_to_full_context", True)),
+        context_include_tests=bool(context_config.get("include_tests", True)),
     )
     task = agent_config.get(
         "task",

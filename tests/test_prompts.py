@@ -20,6 +20,8 @@ def test_replacement_prompt_example_is_valid_json():
     data = json.loads(example)
 
     assert data[0]["old"] == 'target_names = ["iris"]'
+    assert "Current Python source files / selected context:" in prompt
+    assert "selected relevant snippets" in prompt
 
 
 def test_patch_eval_prompt_constrains_agent_output_format():

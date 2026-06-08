@@ -16,6 +16,13 @@ paths:
 sandbox:
   timeout_seconds: 30
 
+context:
+  strategy: traceback
+  line_window: 40
+  max_files: 6
+  fallback_to_full_context: true
+  include_tests: true
+
 agent:
   task: "Fix the failing tests in workspaces/sklearn_iris_tree_project. Only modify files under ml_iris_tree/. Do not modify tests/. Use sklearn.datasets.load_iris, train a DecisionTreeClassifier, compute multiclass metrics, and save a matplotlib Agg confusion matrix image."
   max_iterations: 5

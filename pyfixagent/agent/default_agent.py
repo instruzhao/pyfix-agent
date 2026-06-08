@@ -5,6 +5,10 @@ import time
 
 from pyfixagent.agent.prompts import PATCH_PROMPT, REPLACEMENT_PROMPT, SYSTEM_PROMPT
 from pyfixagent.agent.state import AgentState
+from pyfixagent.context.builder import context_trace_metadata, render_selected_context
+from pyfixagent.context.pytest_summary import parse_pytest_summary, pytest_summary_to_dict
+from pyfixagent.context.selector import select_context
+from pyfixagent.context.traceback_parser import parse_pytest_failure_output
 from pyfixagent.models.base import BaseModel
 from pyfixagent.sandbox.local_sandbox import LocalSandbox
 from pyfixagent.schemas import AgentResult, IterationRecord
@@ -12,6 +16,16 @@ from pyfixagent.tools.file_tools import list_files, read_python_files
 from pyfixagent.tools.patch_tools import apply_patch, check_patch, clean_patch_text, get_git_diff, save_patch
 from pyfixagent.tools.replacement_tools import apply_replacements, parse_replacements
 from pyfixagent.tools.shell_tools import run_pytest
+from pyfixagent.trace import (
+    build_apply,
+    build_model_output,
+    collect_environment,
+    edit_summary,
+    failure_delta,
+    final_summary,
+    iteration_result,
+    model_call_metadata,
+)
 
 
 class DefaultAgent:
@@ -22,6 +36,11 @@ class DefaultAgent:
         patch_output_dir: Path,
         max_iterations: int = 1,
         initial_mode: str = "replacement",
+        context_strategy: str = "traceback",
+        context_line_window: int = 40,
+        context_max_files: int = 6,
+        context_fallback_to_full: bool = True,
+        context_include_tests: bool = True,
     ):
         self.model = model
         self.sandbox = sandbox
@@ -30,6 +49,13 @@ class DefaultAgent:
         if initial_mode not in {"patch", "replacement"}:
             raise ValueError("initial_mode must be 'patch' or 'replacement'")
         self.initial_mode = initial_mode
+        if context_strategy not in {"full", "traceback"}:
+            raise ValueError("context_strategy must be 'full' or 'traceback'")
+        self.context_strategy = context_strategy
+        self.context_line_window = max(0, context_line_window)
+        self.context_max_files = max(1, context_max_files)
+        self.context_fallback_to_full = context_fallback_to_full
+        self.context_include_tests = context_include_tests
 
     def run(self, task: str) -> AgentResult:
         state = AgentState(task=task, workspace=self.sandbox.workspace)
@@ -56,14 +82,25 @@ class DefaultAgent:
                 patch_path = self.patch_output_dir / (
                     f"patch_{datetime.now().strftime('%Y%m%d_%H%M%S')}_attempt_{iteration}.patch"
                 )
-                print(f"[agent] iteration {iteration}/{self.max_iterations}: reading Python files...")
-                python_files = read_python_files(state.workspace)
+                print(f"[agent] iteration {iteration}/{self.max_iterations}: selecting context...")
+                python_files, context_metadata = self._build_context_prompt(
+                    workspace=state.workspace,
+                    pytest_output=current_test_output,
+                )
+                test_summary_before = parse_pytest_summary(current_test_output)
                 mode = "replacement" if replacement_mode_active else "patch"
                 initial_test_output = (
                     state.test_output_before
                     if iteration == 1
                     else "Omitted after iteration 1. Use Current pytest output as the source of truth."
                 )
+
+                def build_record(**kwargs) -> IterationRecord:
+                    return self._build_iteration_record(
+                        context=context_metadata,
+                        test_summary_before=pytest_summary_to_dict(test_summary_before),
+                        **kwargs,
+                    )
 
                 if mode == "replacement":
                     prompt = REPLACEMENT_PROMPT.format(
@@ -76,6 +113,8 @@ class DefaultAgent:
                         feedback=feedback,
                         python_files=python_files,
                     )
+                    context_metadata["prompt_chars"] = len(prompt)
+                    self._update_context_prompt_chars(context_metadata, len(prompt))
 
                     print(
                         f"[agent] iteration {iteration}/{self.max_iterations}: "
@@ -83,15 +122,20 @@ class DefaultAgent:
                     )
                     raw_replacement = ""
                     replacement_edits = None
+                    model_call = model_call_metadata(self.model)
                     try:
+                        model_start = time.perf_counter()
                         raw_replacement = self.model.generate_patch(SYSTEM_PROMPT, prompt)
+                        model_call = model_call_metadata(self.model, time.perf_counter() - model_start)
                         edits = parse_replacements(raw_replacement)
                         replacement_edits = self._replacement_edits_to_dicts(edits)
                         replacement_result = apply_replacements(state.workspace, edits)
                     except Exception as exc:
+                        if model_call.get("duration_seconds") is None:
+                            model_call = model_call_metadata(self.model, time.perf_counter() - model_start)
                         state.error = str(exc)
                         state.iterations.append(
-                            self._build_iteration_record(
+                            build_record(
                                 iteration=iteration,
                                 prompt=prompt,
                                 raw_model_output=raw_replacement,
@@ -112,6 +156,7 @@ class DefaultAgent:
                                 replacement_success=False,
                                 replacement_error=state.error,
                                 patch_command="",
+                                model_call=model_call,
                             )
                         )
                         feedback = self._replacement_failure_feedback(raw_replacement, state.error)
@@ -124,7 +169,7 @@ class DefaultAgent:
                     if not replacement_result.success:
                         state.error = replacement_result.error
                         state.iterations.append(
-                            self._build_iteration_record(
+                            build_record(
                                 iteration=iteration,
                                 prompt=prompt,
                                 raw_model_output=raw_replacement,
@@ -145,6 +190,7 @@ class DefaultAgent:
                                 replacement_success=False,
                                 replacement_error=replacement_result.error,
                                 patch_command="",
+                                model_call=model_call,
                             )
                         )
                         feedback = self._replacement_failure_feedback(raw_replacement, replacement_result.error or "")
@@ -159,7 +205,7 @@ class DefaultAgent:
                     if not diff_result.success:
                         state.error = diff_result.error
                         state.iterations.append(
-                            self._build_iteration_record(
+                            build_record(
                                 iteration=iteration,
                                 prompt=prompt,
                                 raw_model_output=raw_replacement,
@@ -180,6 +226,7 @@ class DefaultAgent:
                                 replacement_success=True,
                                 replacement_error=None,
                                 patch_command="git diff --",
+                                model_call=model_call,
                             )
                         )
                         feedback = self._replacement_failure_feedback(raw_replacement, diff_result.error or "")
@@ -198,7 +245,7 @@ class DefaultAgent:
                     if state.success:
                         state.error = None
                         state.iterations.append(
-                            self._build_iteration_record(
+                            build_record(
                                 iteration=iteration,
                                 prompt=prompt,
                                 raw_model_output=raw_replacement,
@@ -219,13 +266,14 @@ class DefaultAgent:
                                 replacement_success=True,
                                 replacement_error=None,
                                 patch_command="git diff --",
+                                model_call=model_call,
                             )
                         )
                         return self._to_result(state, patch_applied)
 
                     state.error = "tests still failed after applying replacement"
                     state.iterations.append(
-                        self._build_iteration_record(
+                        build_record(
                             iteration=iteration,
                             prompt=prompt,
                             raw_model_output=raw_replacement,
@@ -246,6 +294,7 @@ class DefaultAgent:
                             replacement_success=True,
                             replacement_error=None,
                             patch_command="git diff --",
+                            model_call=model_call,
                         )
                     )
                     current_test_output = state.test_output_after
@@ -266,14 +315,20 @@ class DefaultAgent:
                     feedback=feedback,
                     python_files=python_files,
                 )
+                context_metadata["prompt_chars"] = len(prompt)
+                self._update_context_prompt_chars(context_metadata, len(prompt))
 
                 print(f"[agent] iteration {iteration}/{self.max_iterations}: generating patch with model...")
+                model_call = model_call_metadata(self.model)
                 try:
+                    model_start = time.perf_counter()
                     raw_patch = self.model.generate_patch(SYSTEM_PROMPT, prompt)
+                    model_call = model_call_metadata(self.model, time.perf_counter() - model_start)
                 except Exception as exc:
+                    model_call = model_call_metadata(self.model, time.perf_counter() - model_start)
                     state.error = str(exc)
                     state.iterations.append(
-                        self._build_iteration_record(
+                        build_record(
                             iteration=iteration,
                             prompt=prompt,
                             raw_model_output="",
@@ -288,6 +343,7 @@ class DefaultAgent:
                             success=False,
                             started_at=iteration_start,
                             patch_command="",
+                            model_call=model_call,
                         )
                     )
                     return self._to_result(state, patch_applied)
@@ -305,7 +361,7 @@ class DefaultAgent:
                         replacement_mode_active = True
                     state.error = check_result.error
                     state.iterations.append(
-                        self._build_iteration_record(
+                        build_record(
                             iteration=iteration,
                             prompt=prompt,
                             raw_model_output=raw_patch,
@@ -320,6 +376,7 @@ class DefaultAgent:
                             success=False,
                             started_at=iteration_start,
                             patch_command="git apply --check -",
+                            model_call=model_call,
                         )
                     )
                     feedback = self._patch_failure_feedback(state.patch, check_result.error or check_result.stderr)
@@ -331,7 +388,7 @@ class DefaultAgent:
                 if not patch_result.success:
                     state.error = patch_result.error
                     state.iterations.append(
-                        self._build_iteration_record(
+                        build_record(
                             iteration=iteration,
                             prompt=prompt,
                             raw_model_output=raw_patch,
@@ -346,6 +403,7 @@ class DefaultAgent:
                             success=False,
                             started_at=iteration_start,
                             patch_command="git apply -",
+                            model_call=model_call,
                         )
                     )
                     feedback = self._patch_failure_feedback(state.patch, patch_result.error or "")
@@ -358,7 +416,7 @@ class DefaultAgent:
                 if not diff_result.success:
                     state.error = diff_result.error
                     state.iterations.append(
-                        self._build_iteration_record(
+                        build_record(
                             iteration=iteration,
                             prompt=prompt,
                             raw_model_output=raw_patch,
@@ -373,6 +431,7 @@ class DefaultAgent:
                             success=False,
                             started_at=iteration_start,
                             patch_command="git diff --",
+                            model_call=model_call,
                         )
                     )
                     feedback = self._patch_failure_feedback(state.patch, diff_result.error or "")
@@ -391,7 +450,7 @@ class DefaultAgent:
                 if state.success:
                     state.error = None
                     state.iterations.append(
-                        self._build_iteration_record(
+                        build_record(
                             iteration=iteration,
                             prompt=prompt,
                             raw_model_output=raw_patch,
@@ -406,13 +465,14 @@ class DefaultAgent:
                             success=True,
                             started_at=iteration_start,
                             patch_command="git diff --",
+                            model_call=model_call,
                         )
                     )
                     return self._to_result(state, patch_applied)
 
                 state.error = "tests still failed after applying patch"
                 state.iterations.append(
-                    self._build_iteration_record(
+                    build_record(
                         iteration=iteration,
                         prompt=prompt,
                         raw_model_output=raw_patch,
@@ -426,6 +486,8 @@ class DefaultAgent:
                         pytest_output=state.test_output_after,
                         success=False,
                         started_at=iteration_start,
+                        patch_command="git diff --",
+                        model_call=model_call,
                     )
                 )
                 current_test_output = state.test_output_after
@@ -453,6 +515,46 @@ class DefaultAgent:
             result.stderr,
         ]
         return "\n".join(parts)
+
+    def _build_context_prompt(self, workspace: Path, pytest_output: str) -> tuple[str, dict]:
+        summary = parse_pytest_failure_output(pytest_output)
+        selected_context = select_context(
+            summary=summary,
+            workspace=workspace,
+            strategy=self.context_strategy,
+            line_window=self.context_line_window,
+            max_files=self.context_max_files,
+            fallback_to_full_context=self.context_fallback_to_full,
+            include_tests=self.context_include_tests,
+        )
+
+        if self.context_strategy == "full":
+            python_files = read_python_files(workspace)
+        else:
+            python_files = render_selected_context(selected_context)
+
+        selected_context.prompt_chars = len(python_files)
+        metadata = context_trace_metadata(selected_context)
+        metadata["pytest_output_chars"] = len(pytest_output)
+        metadata["stats"]["pytest_output_chars"] = len(pytest_output)
+        metadata["failed_tests"] = summary.failed_tests
+        metadata["exception_type"] = summary.exception_type
+        metadata["error_message"] = summary.error_message
+        metadata["raw_traceback_frames"] = [
+            {
+                "path": frame.path,
+                "line": frame.line,
+                "function": frame.function,
+            }
+            for frame in summary.frames
+        ]
+        return python_files, metadata
+
+    @staticmethod
+    def _update_context_prompt_chars(context: dict, prompt_chars: int) -> None:
+        context["prompt_chars"] = prompt_chars
+        stats = context.setdefault("stats", {})
+        stats["prompt_chars"] = prompt_chars
 
     @staticmethod
     def _patch_failure_feedback(patch: str, error: str) -> str:
@@ -513,7 +615,59 @@ class DefaultAgent:
         replacement_error: str | None = None,
         model_output_type: str = "patch",
         patch_command: str = "",
+        context: dict | None = None,
+        test_summary_before: dict | None = None,
+        model_call: dict | None = None,
     ) -> IterationRecord:
+        test_summary_after_obj = parse_pytest_summary(pytest_output) if pytest_output else None
+        test_summary_after = pytest_summary_to_dict(test_summary_after_obj)
+        before_obj = None
+        if test_summary_before is not None:
+            before_obj = parse_pytest_summary("")
+            before_obj.total = test_summary_before.get("total")
+            before_obj.passed = int(test_summary_before.get("passed") or 0)
+            before_obj.failed = int(test_summary_before.get("failed") or 0)
+            before_obj.skipped = int(test_summary_before.get("skipped") or 0)
+            before_obj.failed_tests = list(test_summary_before.get("failed_tests") or [])
+        delta = failure_delta(before_obj, test_summary_after_obj)
+        generated_diff = cleaned_patch if apply_success and patch_command == "git diff --" else ""
+        parse_error = None
+        if mode == "replacement" and replacement_success is False and not replacement_edits:
+            parse_error = replacement_error
+        apply_error_text = apply_error or (replacement_error if replacement_success is False and replacement_edits else "")
+        model_output = build_model_output(
+            mode=mode,
+            raw=raw_model_output,
+            parsed_edits=replacement_edits,
+            parse_error=parse_error,
+            cleaned_patch=cleaned_patch,
+        )
+        apply_info = build_apply(
+            method=mode,
+            success=apply_success,
+            error=apply_error_text or "",
+            generated_diff=generated_diff,
+            check_success=apply_check_success,
+            check_error=apply_check_error,
+            command=patch_command,
+        )
+        edits = edit_summary(
+            mode=mode,
+            replacement_edits=replacement_edits,
+            diff_text=generated_diff or cleaned_patch,
+        )
+        result = iteration_result(
+            success=success,
+            mode=mode,
+            raw_model_output=raw_model_output,
+            model_parse_error=parse_error,
+            apply_success=apply_success,
+            apply_error=apply_error_text or "",
+            apply_check_success=apply_check_success,
+            apply_check_error=apply_check_error,
+            pytest_exit_code=pytest_exit_code,
+            delta=delta,
+        )
         return IterationRecord(
             iteration=iteration,
             prompt=prompt,
@@ -535,11 +689,21 @@ class DefaultAgent:
             replacement_success=replacement_success,
             replacement_error=replacement_error,
             patch_command=patch_command,
+            context=context,
+            test_summary_before=test_summary_before,
+            test_summary_after=test_summary_after,
+            failure_delta=delta,
+            iteration_result=result,
+            generated_diff=generated_diff,
+            model_output=model_output,
+            apply=apply_info,
+            edit_summary=edits,
+            model_call=model_call,
         )
 
     @staticmethod
     def _to_result(state: AgentState, patch_applied: bool) -> AgentResult:
-        return AgentResult(
+        result = AgentResult(
             task=state.task,
             workspace=str(state.workspace),
             success=state.success,
@@ -551,7 +715,10 @@ class DefaultAgent:
             workspace_strategy="incremental_repair",
             final_patch_command=DefaultAgent._final_patch_command(state, patch_applied),
             error=state.error,
+            environment=collect_environment(state.workspace),
         )
+        result.final_summary = final_summary(result)
+        return result
 
     @staticmethod
     def _final_patch_command(state: AgentState, patch_applied: bool) -> str:
