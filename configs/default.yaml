@@ -1,0 +1,21 @@
+model:
+  provider: openai_compatible
+  name: glm-5
+  api_base: https://dashscope.aliyuncs.com/compatible-mode/v1
+  api_key_env: DASHSCOPE_API_KEY
+  temperature: 0.0
+  max_tokens: 8192
+  timeout_seconds: 60
+  enable_thinking: false
+
+paths:
+  workspace: workspaces/sklearn_iris_tree_project
+  patch_output_dir: outputs/patches
+  trace_output_dir: outputs/traces
+
+sandbox:
+  timeout_seconds: 30
+
+agent:
+  task: "Fix the failing tests in workspaces/sklearn_iris_tree_project. Only modify files under ml_iris_tree/. Do not modify tests/. Use sklearn.datasets.load_iris, train a DecisionTreeClassifier, compute multiclass metrics, and save a matplotlib Agg confusion matrix image."
+  max_iterations: 5
