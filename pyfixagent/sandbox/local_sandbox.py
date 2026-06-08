@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import time
 
@@ -38,6 +39,8 @@ class LocalSandbox:
             )
 
         try:
+            if _is_python_command(command):
+                _clean_python_bytecode_cache(self.workspace)
             env = os.environ.copy()
             env["PYTHONDONTWRITEBYTECODE"] = "1"
             completed = subprocess.run(
@@ -75,3 +78,25 @@ class LocalSandbox:
                 duration=time.perf_counter() - start,
                 timeout=False,
             )
+
+
+def _is_python_command(command: list[str]) -> bool:
+    if not command:
+        return False
+    executable = Path(command[0]).name.lower()
+    return executable == "python" or executable.startswith("python.")
+
+
+def _clean_python_bytecode_cache(workspace: Path) -> None:
+    workspace_path = Path(workspace).resolve()
+    if not workspace_path.exists():
+        return
+
+    for cache_dir in workspace_path.rglob("__pycache__"):
+        resolved = cache_dir.resolve()
+        try:
+            resolved.relative_to(workspace_path)
+        except ValueError:
+            continue
+        if resolved.is_dir():
+            shutil.rmtree(resolved)
