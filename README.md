@@ -5,7 +5,8 @@ PyFixAgent is a small, beginner-friendly Coding Agent for test-driven repair in 
 Current capabilities:
 
 - run pytest in a configured local workspace
-- read the workspace file tree and all Python source files
+- read the workspace file tree
+- select traceback-driven Python context snippets, or fall back to full Python source context
 - call a LiteLLM-backed model
 - ask the model for either JSON old/new replacements or a unified diff patch
 - save patches under `outputs/patches`
@@ -14,7 +15,7 @@ Current capabilities:
 - apply JSON replacements with exact string matching
 - rerun pytest after each applied repair
 - retry with model feedback for a limited number of iterations
-- save full run traces under `outputs/traces`
+- save full run traces under `outputs/traces`, including context selection metadata
 - provide a small `patch_eval` package for patch parsing, normalization, validation, and `git apply --check` evaluation
 
 The project intentionally has no Web UI, Docker support, multi-agent workflow, vector database, GitHub issue integration, or full benchmark/evaluation suite.
@@ -33,7 +34,7 @@ Copy `.env.example` to `.env` and set the API key required by your model provide
 DASHSCOPE_API_KEY=your_api_key_here
 ```
 
-Model settings, timeouts, and `agent.max_iterations` are configured in `configs/default.yaml`.
+Model settings, timeouts, context strategy, and `agent.max_iterations` are configured in `configs/default.yaml`.
 The default workspace and task are also configured there.
 
 ## Run The Agent
@@ -48,13 +49,77 @@ The command scans the workspace configured in `configs/default.yaml`. In the cur
 workspaces/sklearn_iris_tree_project
 ```
 
-It runs pytest, sends the pytest output and Python source files to the model, applies the requested repair, reruns pytest, and writes a trace JSON such as:
+It runs pytest, sends the pytest output and selected Python context to the model, applies the requested repair, reruns pytest, and writes a trace JSON such as:
 
 ```text
 outputs/traces/run_20260607_195745.json
 ```
 
-The current implementation reads all `*.py` files in the configured workspace and includes them in the model prompt. It does not yet select only the traceback line, enclosing function, enclosing class, or a smaller retrieved context window.
+By default, PyFixAgent parses pytest failures and selects a small window around relevant traceback files instead of sending every Python file. The default context settings are:
+
+```yaml
+context:
+  strategy: traceback
+  line_window: 40
+  max_files: 6
+  fallback_to_full_context: true
+  include_tests: true
+```
+
+Set `context.strategy: full` to use the older behavior that includes all `*.py` files in the configured workspace. Test files may be read as context so the model can understand expected behavior, but replacement mode still rejects modifications under `tests/`. The traceback strategy may also include modules directly imported by a failing test as `direct_test_import`; this is a lightweight context expansion, not a full import graph or dependency analysis.
+
+Trace JSON records structured diagnostics for each iteration:
+
+```json
+{
+  "test_summary_before": {
+    "total": 6,
+    "passed": 3,
+    "failed": 3,
+    "skipped": 0,
+    "failed_tests": ["tests/test_data.py::test_load_data"]
+  },
+  "failure_delta": {
+    "fixed": [],
+    "remaining": ["tests/test_data.py::test_load_data"],
+    "new": []
+  },
+  "iteration_result": {
+    "status": "test_failed_after_apply",
+    "failure_type": "incomplete_fix",
+    "reason": "Repair was applied successfully, but pytest still failed."
+  },
+  "model_output": {
+    "mode": "replacement",
+    "parsed_success": true
+  },
+  "apply": {
+    "method": "replacement",
+    "success": true,
+    "generated_diff": "diff --git ..."
+  },
+  "context": {
+    "strategy": "traceback",
+    "dependency_analysis": false,
+    "stats": {
+      "selected_file_count": 2,
+      "selected_snippet_count": 2,
+      "selected_context_chars": 5120,
+      "pytest_output_chars": 7250,
+      "prompt_chars": 21438
+    },
+    "selected_files": [
+      {
+        "path": "tests/test_data.py",
+        "reason": "failing_test_file",
+        "selection_rule": "failing_test_file",
+        "dependency_analysis": false,
+        "line_range": [1, 45]
+      }
+    ]
+  }
+}
+```
 
 ## Reset The Demo
 
@@ -97,7 +162,7 @@ initial_mode: str = "replacement"
 
 The replacement strategy is more stable for small, exact edits because the program performs precise string replacement instead of trusting model-written hunk line numbers. It is only intended for narrow changes. Replacement mode rejects edits under `tests/`, rejects absolute paths or paths that escape the workspace, rejects non-`.py` files, and requires each `old` text fragment to match exactly once unless `start_line` disambiguates repeated matches.
 
-In trace JSON, `raw_model_output` always means the raw model response. When `mode` or `model_output_type` is `patch`, it should be a unified diff. When `mode` or `model_output_type` is `replacement`, it should be a JSON array. Replacement traces also include `replacement_raw_output`, `replacement_edits`, `replacement_success`, and `replacement_error`.
+In trace JSON, `raw_model_output` always means the raw model response. When `mode` or `model_output_type` is `patch`, it should be a unified diff. When `mode` or `model_output_type` is `replacement`, it should be a JSON array. Replacement traces also include `replacement_raw_output`, `replacement_edits`, `replacement_success`, and `replacement_error`. New v0.2.0 traces prefer the structured `model_output`, `apply`, and `generated_diff` fields so replacement-mode workspace diffs are not confused with model-generated patches. Top-level traces also include `environment` and `final_summary` for quick reading.
 
 Debug traces may contain source code, model output, and pytest logs. Do not commit them to a public repository. This is still not a production-grade security sandbox.
 

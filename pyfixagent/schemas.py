@@ -23,6 +23,16 @@ class IterationRecord:
     replacement_success: bool | None = None
     replacement_error: str | None = None
     patch_command: str = ""
+    context: dict | None = None
+    test_summary_before: dict | None = None
+    test_summary_after: dict | None = None
+    failure_delta: dict | None = None
+    iteration_result: dict | None = None
+    generated_diff: str = ""
+    model_output: dict | None = None
+    apply: dict | None = None
+    edit_summary: dict | None = None
+    model_call: dict | None = None
 
 
 @dataclass
@@ -38,3 +48,5 @@ class AgentResult:
     workspace_strategy: str = "incremental_repair"
     final_patch_command: str = ""
     error: str | None = None
+    environment: dict | None = None
+    final_summary: dict | None = None

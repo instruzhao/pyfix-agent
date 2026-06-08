@@ -23,7 +23,7 @@ Initial pytest output:
 Previous attempt feedback:
 {feedback}
 
-Current Python source files:
+Current Python source files / selected context:
 {python_files}
 
 Current pytest output:
@@ -48,7 +48,10 @@ Only modify task-allowed source files.
 Do not modify tests/.
 Do not output incomplete hunks.
 Make sure every hunk header line count matches the actual hunk body.
-Keep imports that are still used by the file."""
+Keep imports that are still used by the file.
+You may be given selected relevant snippets instead of the full project.
+Do not assume unrelated files unless necessary.
+If the provided context is insufficient, make the smallest reasonable fix based on the failure and selected code."""
 
 REPLACEMENT_PROMPT = """Task:
 {task}
@@ -68,7 +71,7 @@ Initial pytest output:
 Previous attempt feedback:
 {feedback}
 
-Current Python source files:
+Current Python source files / selected context:
 {python_files}
 
 Current pytest output:
@@ -95,6 +98,9 @@ Each replacement should be small and precise.
 Only modify task-allowed Python source files.
 Do not modify tests/.
 If multiple files need changes, return multiple objects in the JSON array.
+You may be given selected relevant snippets instead of the full project.
+Do not assume unrelated files unless necessary.
+If the provided context is insufficient, make the smallest reasonable fix based on the failure and selected code.
 
 Example JSON array:
 [

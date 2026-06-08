@@ -29,6 +29,18 @@ def test_save_trace_writes_agent_result_json(tmp_path):
                 success=False,
                 duration_seconds=1.25,
                 patch_command="git apply --check -",
+                context={
+                    "strategy": "traceback",
+                    "fallback_used": False,
+                    "prompt_chars": 100,
+                    "selected_files": [
+                        {
+                            "path": "app.py",
+                            "reason": "traceback_source_file",
+                            "line_range": [1, 10],
+                        }
+                    ],
+                },
             )
         ],
         workspace_strategy="incremental_repair",
@@ -47,3 +59,9 @@ def test_save_trace_writes_agent_result_json(tmp_path):
     assert data["iterations"][0]["apply_check_error"] == "check failed"
     assert data["iterations"][0]["model_output_type"] == "patch"
     assert data["iterations"][0]["patch_command"] == "git apply --check -"
+    assert data["iterations"][0]["context"]["strategy"] == "traceback"
+    assert data["iterations"][0]["context"]["selected_files"][0]["line_range"] == [1, 10]
+    assert data["environment"]["python"]
+    assert data["environment"]["workspace"] == "workspaces/demo_project"
+    assert data["final_summary"]["status"] == "failed"
+    assert data["final_summary"]["iterations_used"] == 1
