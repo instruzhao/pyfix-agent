@@ -1,51 +1,33 @@
 # Roadmap
 
-## Completed through v0.2.3
+## Completed through v0.3.1
 
 - pytest-driven iterative repair loop
 - replacement and unified-diff patch modes
 - traceback-driven and full context strategies
-- structured traces, CLI/config support, resettable examples, CI, and initial benchmark documentation
+- structured traces, CLI/config support, resettable examples, and CI
+- clean Git workspace guard and shared edit policy
+- isolated schema v2 benchmark fixtures with external holdouts
+- 15 hint-free curated cases, Success@1, Pass@k, regressions, failures, and token metrics
 
-## v0.2.4 Engineering Baseline — Completed in v0.3.0
+## v0.4.0 Role-oriented Internals — Completed
 
-- unified package version and installable `pyfixagent` command
-- meaningful process exit status
-- generic prompts without demo-specific file bias
-- CI matrix for supported Python versions
-- corrected documentation and Chinese resume encoding
-- trace schema version and pre-run workspace metadata
+- stable core contracts for repair requests, context, proposals, apply results, outcomes, and retry decisions
+- `RepairEngine` as the deterministic workflow coordinator
+- independent test execution, workspace session, context, prompt, model, evaluator, and retry components
+- independent patch and replacement backends behind the same protocol
+- modular benchmark manifest, workspace, holdout, runner, metrics, report, and CLI responsibilities
+- compatibility facades for `DefaultAgent` and `pyfixagent.benchmark`
+- component-level architecture tests in addition to end-to-end compatibility tests
+- four-repetition real-model benchmark report for release qualification
 
-## v0.3.0 Repeatable and Guarded Baseline — Completed
+## Next: v0.5 Reliability and Isolation
 
-- `pyfixagent-benchmark` command
-- versioned YAML benchmark case manifest
-- reset-before/reset-after execution
-- repeated runs with Success@1 and Pass@k
-- JSON/Markdown reports and per-run structured traces
-- provider token metrics when available
-- clean Git workspace guard enabled by default in the CLI
-- shared tool-level edit policy for patch and replacement modes
-- allowed paths, forbidden test paths, file count, and changed-line budgets
-
-## v0.3.1 Credible Benchmark Baseline — Completed
-
-- schema v2 manifests with generated generic tasks and no case-specific task hints
-- physically separated visible and holdout tests
-- final success gated on external holdout validation
-- fresh temporary Git repository for every case/strategy/repetition
-- five repetitions by default
-- 15 curated cases across varied bug categories
-- visible, holdout, Success@1, Pass@k, regression, no-progress, failure, policy, and token metrics
-- `pyfixagent-benchmark --validate` for no-model protocol validation
-
-## Next: v0.4
-
+- per-iteration Git checkpoints and automatic rollback on regression
 - temporary Git worktree execution instead of in-place clean-workspace execution
-- per-iteration checkpoints and automatic rollback on regression
 - configurable test commands with an explicit command policy
+- semantic retry strategies driven by failure deltas rather than only format/apply failures
 - token-based context budgeting and symbol-level dependency expansion
-- a larger curated benchmark suite with multiple bug categories
 - trace redaction and a static trace viewer
 
 ## Deferred

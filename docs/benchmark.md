@@ -28,6 +28,10 @@ Validate the complete protocol without model calls:
 
 v0.3.1 contains 15 cases spanning small logic errors, boundary behavior, configuration parsing, order-preserving collections, dates, Decimal arithmetic, nested lookup, CSV parsing, multi-file behavior, validation, path handling, and the two original demo projects.
 
+v0.4 hardens fixture handling further. Fixture copies exclude Python bytecode and pytest cache artifacts, and `--validate` runs every failing baseline under two deterministic hash seeds. This prevents stale `.pyc` files and hash-order coincidences from being counted as zero-iteration repairs.
+
+The v0.4.0 four-repetition release report is available at `docs/results/v0.4.0-qwen3.6-flash-repeat4.md`.
+
 This document records a lightweight v0.2.2 comparison of PyFixAgent context strategies. It is meant to explain prompt/context behavior on the included demo workspaces, not to claim broad code repair ability.
 
 ## Benchmark Goal
