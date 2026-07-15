@@ -1,5 +1,33 @@
 # Benchmark
 
+## v0.3 Repeatable Runner
+
+The historical results below were produced for v0.2.2. Starting with v0.3, benchmark cases are defined in `benchmarks/cases.yaml` and executed by the installed `pyfixagent-benchmark` command.
+
+    pyfixagent-benchmark --list
+    pyfixagent-benchmark --case demo_project --strategy traceback --repeat 3
+
+The runner resets every case before and after each run, requires a clean Git workspace, applies the case's allowed-path policy, saves a structured trace per run, and writes `report.json` plus `report.md` under `outputs/benchmarks/`.
+
+The report includes run success rate, Success@1, Pass@k across repetitions, average iterations, failure type, prompt/context characters, and provider token usage when available. The manifest schema is intentionally small so new deterministic cases can be reviewed in Git.
+
+## v0.3.1 Credible Evaluation Protocol
+
+Schema v2 separates evaluation data into two physical locations:
+
+- `benchmarks/fixtures/` contains the failing source and tests visible to the agent.
+- `benchmarks/holdouts/` contains final validation tests that are never copied into the agent workspace or prompt context.
+
+The manifest no longer accepts a per-case `task`. The runner generates a generic task using only the allowed source roots, which prevents implementation hints from leaking into benchmark prompts.
+
+Every repetition starts from a fresh fixture copy in a temporary Git repository. The default is five independent repetitions. Final success requires both the visible tests and external holdout tests to pass.
+
+Validate the complete protocol without model calls:
+
+    pyfixagent-benchmark --validate
+
+v0.3.1 contains 15 cases spanning small logic errors, boundary behavior, configuration parsing, order-preserving collections, dates, Decimal arithmetic, nested lookup, CSV parsing, multi-file behavior, validation, path handling, and the two original demo projects.
+
 This document records a lightweight v0.2.2 comparison of PyFixAgent context strategies. It is meant to explain prompt/context behavior on the included demo workspaces, not to claim broad code repair ability.
 
 ## Benchmark Goal

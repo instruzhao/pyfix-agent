@@ -2,14 +2,14 @@
 
 ## English
 
-- Built PyFixAgent, a lightweight test-driven repair agent for local Python projects that runs pytest, collects failure traces, prompts an LLM through LiteLLM, applies structured code edits, and verifies fixes through iterative test execution.
-- Designed dual repair backends: unified-diff patch mode with git-apply validation, and JSON replacement mode with workspace/path constraints and context-aware replacement for reliable small-scope edits.
-- Implemented traceback-driven context selection and structured repair traces, recording selected files, test deltas, iteration results, model outputs, applied edits, and final repair summaries.
-- Added CLI/config support, resettable demo workspaces, lightweight benchmark documentation, and 60+ unit tests covering agent loop, patch handling, replacement application, context selection, trace generation, and sandbox policy.
+- Built PyFixAgent, a test-driven repair agent for local Python projects that runs pytest, selects failure-driven context, applies constrained LLM-generated edits, and verifies fixes through iterative test execution.
+- Designed unified edit policies for replacement and patch modes, enforcing workspace-relative paths, allowed source roots, test-file protection, and file/change budgets.
+- Implemented structured, versioned repair traces and a repeatable benchmark runner with YAML case manifests, repeated runs, Success@1, Pass@k, prompt/token metrics, and JSON/Markdown reports.
+- Added clean Git workspace checks, CLI exit status, provider-independent LiteLLM integration, resettable fixtures, CI across supported Python versions, and 100+ unit tests.
 
 ## 中文
 
-- 实现 PyFixAgent，一个面向本地 Python 小项目的轻量级测试驱动代码修复 Agent：自动运行 pytest、收集失败信息、调用大模型生成修复、应用代码修改，并通过多轮测试反馈验证结果。
-- 设计 patch 与 replacement 两种修复后端：patch 模式支持 unified diff 清理、校验和 git apply 检查；replacement 模式支持结构化 JSON 替换、路径约束和上下文匹配，提高小范围修复稳定性。
-- 实现基于 pytest 失败信息的上下文选择和结构化 trace，记录每轮 selected files、failure delta、iteration result、model output、applied edits 和 final summary。
-- 补充 CLI/config 支持、可重置示例 workspace、轻量 benchmark 文档和 60+ 单元测试，覆盖 Agent 主流程、patch 处理、replacement 应用、上下文选择、trace 生成和 sandbox 策略。
+- 实现 PyFixAgent：面向本地 Python 项目的测试驱动代码修复 Agent，自动运行 pytest、选择失败相关上下文、应用受约束的模型编辑，并通过多轮测试反馈验证修复结果。
+- 为 replacement 与 patch 模式设计统一编辑策略，在工具层强制执行工作区相对路径、允许源码目录、测试文件保护以及文件数和改动行数预算。
+- 实现带版本的结构化修复 Trace 和可重复 Benchmark Runner，支持 YAML 案例清单、重复运行、Success@1、Pass@k、Prompt/Token 指标及 JSON/Markdown 报告。
+- 加入 Git 干净工作区检查、可靠 CLI 退出码、LiteLLM 多模型接入、可重置测试样例、多 Python 版本 CI 和 100+ 单元测试。

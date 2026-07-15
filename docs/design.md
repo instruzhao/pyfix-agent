@@ -89,12 +89,19 @@ It does not provide container isolation, filesystem isolation, network isolation
 
 ## Workspace Safety Rules
 
-Replacement mode applies path and content checks before modifying files:
+The CLI inspects the selected Git workspace before running and refuses a dirty workspace by default. The starting revision and status are included in the trace. Direct library users may opt out for compatibility, but should do so only when they manage their own snapshot or worktree.
+
+Patch and replacement modes share a tool-enforced edit policy:
 
 - paths must be relative to the workspace
 - paths must not escape the workspace
 - only Python files are accepted
 - tests are not modified
+- optional allowed source roots are enforced
+- file count and approximate changed-line budgets are enforced
+
+Replacement mode additionally applies exact-content checks before modifying files:
+
 - old text must match exactly once unless `start_line` disambiguates it
 
 Patch mode validates patches with `git apply --check -` before applying them.

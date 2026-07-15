@@ -1,48 +1,58 @@
 # Roadmap
 
-This roadmap separates completed v0.2.x work from possible future work. Future items are ideas, not implemented features.
+## Completed through v0.2.3
 
-## Completed
+- pytest-driven iterative repair loop
+- replacement and unified-diff patch modes
+- traceback-driven and full context strategies
+- structured traces, CLI/config support, resettable examples, CI, and initial benchmark documentation
 
-- test-driven repair loop
-- replacement / patch modes
-- traceback-driven context selection
-- structured trace
-- CLI and config polish
-- reset script
-- lightweight benchmark docs
+## v0.2.4 Engineering Baseline — Completed in v0.3.0
 
-## v0.2.0
+- unified package version and installable `pyfixagent` command
+- meaningful process exit status
+- generic prompts without demo-specific file bias
+- CI matrix for supported Python versions
+- corrected documentation and Chinese resume encoding
+- trace schema version and pre-run workspace metadata
 
-- Added traceback-driven context selection.
-- Added structured trace fields for repair iterations.
-- Improved trace visibility around context, model output, apply results, and test deltas.
+## v0.3.0 Repeatable and Guarded Baseline — Completed
 
-## v0.2.1
+- `pyfixagent-benchmark` command
+- versioned YAML benchmark case manifest
+- reset-before/reset-after execution
+- repeated runs with Success@1 and Pass@k
+- JSON/Markdown reports and per-run structured traces
+- provider token metrics when available
+- clean Git workspace guard enabled by default in the CLI
+- shared tool-level edit policy for patch and replacement modes
+- allowed paths, forbidden test paths, file count, and changed-line budgets
 
-- Added CLI overrides for config, workspace, task, mode, context strategy, and max iterations.
-- Clarified configuration priority.
-- Added reset script for demo workspaces.
-- Improved project cleanliness around generated patches, traces, caches, temp files, and secrets.
+## v0.3.1 Credible Benchmark Baseline — Completed
 
-## v0.2.2
+- schema v2 manifests with generated generic tasks and no case-specific task hints
+- physically separated visible and holdout tests
+- final success gated on external holdout validation
+- fresh temporary Git repository for every case/strategy/repetition
+- five repetitions by default
+- 15 curated cases across varied bug categories
+- visible, holdout, Success@1, Pass@k, regression, no-progress, failure, policy, and token metrics
+- `pyfixagent-benchmark --validate` for no-model protocol validation
 
-- Added lightweight benchmark documentation.
-- Reworked README for GitHub presentation.
-- Added design documentation.
-- Added trace schema documentation.
-- Added limitations and roadmap documentation.
-- Added resume/interview bullets in English and Chinese.
-- Kept scope focused on documentation and presentation rather than new agent capability.
+## Next: v0.4
 
-## Future Work
+- temporary Git worktree execution instead of in-place clean-workspace execution
+- per-iteration checkpoints and automatic rollback on regression
+- configurable test commands with an explicit command policy
+- token-based context budgeting and symbol-level dependency expansion
+- a larger curated benchmark suite with multiple bug categories
+- trace redaction and a static trace viewer
 
-- more benchmark cases
-- Git working copy isolation
-- optional container sandbox
-- better prompt size reporting
-- trace viewer
-- CI workflow
-- richer context expansion
+## Deferred
 
-These items should be treated as future directions, not current capabilities.
+- untrusted-code execution without container isolation
+- Web UI
+- GitHub pull-request automation
+- vector database/RAG
+- generated tests
+- multi-agent or multi-model voting

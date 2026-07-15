@@ -4,6 +4,8 @@ PyFixAgent writes structured JSON traces so a repair run can be inspected withou
 
 ## Top-level Fields
 
+`trace_schema_version` identifies the trace contract. v0.3 traces use schema `1.0`.
+
 `task` records the natural-language task given to the agent.
 
 `workspace` records the local workspace path used for the run.
@@ -13,6 +15,8 @@ PyFixAgent writes structured JSON traces so a repair run can be inspected withou
 `iterations` is the ordered list of repair attempts. Most detailed fields are stored per iteration.
 
 `environment` records runtime information such as Python version, platform, cwd/workspace details, and pytest availability.
+
+`workspace_state` records the Git root, starting revision, dirty flag, and changed paths observed before the run. It does not contain file contents.
 
 `final_summary` provides a compact final status for quick inspection.
 
