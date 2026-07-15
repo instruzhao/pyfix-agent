@@ -57,6 +57,11 @@ def test_parse_replacements_rejects_empty_path():
         parse_replacements('[{"path": "", "old": "x", "new": "y"}]')
 
 
+def test_parse_replacements_rejects_no_op_edit():
+    with pytest.raises(ValueError, match="old and new must differ"):
+        parse_replacements('[{"path": "src/app.py", "old": "x", "new": "x"}]')
+
+
 def test_apply_replacements_replaces_single_unique_old_text(tmp_path):
     workspace = tmp_path / "workspace"
     workspace.mkdir()
