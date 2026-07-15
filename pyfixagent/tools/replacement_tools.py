@@ -2,6 +2,8 @@ from dataclasses import dataclass
 import json
 from pathlib import Path
 
+from pyfixagent.tools.edit_policy import EditPolicy
+
 
 @dataclass
 class ReplacementResult:
@@ -56,8 +58,20 @@ def parse_replacements(raw_output: str) -> list[ReplacementEdit]:
     return edits
 
 
-def apply_replacements(workspace: str | Path, edits: list[ReplacementEdit]) -> ReplacementResult:
+def apply_replacements(
+    workspace: str | Path,
+    edits: list[ReplacementEdit],
+    policy: EditPolicy | None = None,
+) -> ReplacementResult:
     workspace_path = Path(workspace).resolve()
+    active_policy = policy or EditPolicy()
+    policy_error = active_policy.validate_paths([edit.path for edit in edits])
+    if policy_error:
+        return ReplacementResult(success=False, changed_files=[], error=policy_error)
+    changed_lines = sum(max(len(edit.old.splitlines()), len(edit.new.splitlines())) for edit in edits)
+    policy_error = active_policy.validate_changed_lines(changed_lines)
+    if policy_error:
+        return ReplacementResult(success=False, changed_files=[], error=policy_error)
     planned_changes: dict[Path, str] = {}
     originals: dict[Path, str] = {}
     changed_files: list[str] = []
@@ -68,20 +82,7 @@ def apply_replacements(workspace: str | Path, edits: list[ReplacementEdit]) -> R
         except ValueError as exc:
             return ReplacementResult(success=False, changed_files=[], error=str(exc))
 
-        if target.suffix != ".py":
-            return ReplacementResult(
-                success=False,
-                changed_files=[],
-                error=f"replacement target must be a .py file: {edit.path}",
-            )
-
         rel = target.relative_to(workspace_path).as_posix()
-        if _is_tests_path(Path(rel)):
-            return ReplacementResult(
-                success=False,
-                changed_files=[],
-                error=f"replacement target is under tests/ and is not allowed: {edit.path}",
-            )
 
         if target not in originals:
             try:
@@ -190,10 +191,6 @@ def _resolve_target(workspace: Path, raw_path: str) -> Path:
     except ValueError as exc:
         raise ValueError(f"replacement path escapes workspace: {raw_path}") from exc
     return target
-
-
-def _is_tests_path(path: Path) -> bool:
-    return path.parts[:1] == ("tests",)
 
 
 def _remove_python_bytecode_cache(source_path: Path) -> None:

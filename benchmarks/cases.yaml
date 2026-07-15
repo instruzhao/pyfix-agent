@@ -1,0 +1,81 @@
+schema_version: 2
+
+cases:
+  - id: demo_project
+    fixture: workspaces/demo_project
+    holdout: benchmarks/holdouts/demo_project
+    allowed_paths: [src]
+    strategies: [traceback]
+    max_iterations: 5
+
+  - id: sklearn_iris_tree_project
+    fixture: workspaces/sklearn_iris_tree_project
+    holdout: benchmarks/holdouts/sklearn_iris_tree_project
+    allowed_paths: [ml_iris_tree]
+    strategies: [traceback]
+    max_iterations: 5
+
+  - id: off_by_one
+    fixture: benchmarks/fixtures/off_by_one
+    holdout: benchmarks/holdouts/off_by_one
+    allowed_paths: [src]
+
+  - id: config_bool
+    fixture: benchmarks/fixtures/config_bool
+    holdout: benchmarks/holdouts/config_bool
+    allowed_paths: [src]
+
+  - id: ordered_unique
+    fixture: benchmarks/fixtures/ordered_unique
+    holdout: benchmarks/holdouts/ordered_unique
+    allowed_paths: [src]
+
+  - id: date_range
+    fixture: benchmarks/fixtures/date_range
+    holdout: benchmarks/holdouts/date_range
+    allowed_paths: [src]
+
+  - id: decimal_invoice
+    fixture: benchmarks/fixtures/decimal_invoice
+    holdout: benchmarks/holdouts/decimal_invoice
+    allowed_paths: [src]
+
+  - id: nested_lookup
+    fixture: benchmarks/fixtures/nested_lookup
+    holdout: benchmarks/holdouts/nested_lookup
+    allowed_paths: [src]
+
+  - id: csv_parser
+    fixture: benchmarks/fixtures/csv_parser
+    holdout: benchmarks/holdouts/csv_parser
+    allowed_paths: [src]
+
+  - id: multi_file_discount
+    fixture: benchmarks/fixtures/multi_file_discount
+    holdout: benchmarks/holdouts/multi_file_discount
+    allowed_paths: [src]
+
+  - id: clamp
+    fixture: benchmarks/fixtures/clamp
+    holdout: benchmarks/holdouts/clamp
+    allowed_paths: [src]
+
+  - id: median
+    fixture: benchmarks/fixtures/median
+    holdout: benchmarks/holdouts/median
+    allowed_paths: [src]
+
+  - id: slugify
+    fixture: benchmarks/fixtures/slugify
+    holdout: benchmarks/holdouts/slugify
+    allowed_paths: [src]
+
+  - id: file_extension
+    fixture: benchmarks/fixtures/file_extension
+    holdout: benchmarks/holdouts/file_extension
+    allowed_paths: [src]
+
+  - id: withdrawal_validation
+    fixture: benchmarks/fixtures/withdrawal_validation
+    holdout: benchmarks/holdouts/withdrawal_validation
+    allowed_paths: [src]

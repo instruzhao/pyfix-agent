@@ -12,6 +12,7 @@ from pyfixagent.sandbox.local_sandbox import LocalSandbox
 from pyfixagent.schemas import AgentResult
 from pyfixagent.trace import collect_environment, final_summary
 from pyfixagent.utils.config import load_config
+from pyfixagent import __version__
 
 
 DEFAULT_CONFIG_PATH = "configs/default.yaml"
@@ -26,6 +27,9 @@ DEFAULT_CONTEXT_LINE_WINDOW = 40
 DEFAULT_CONTEXT_MAX_FILES = 6
 DEFAULT_CONTEXT_FALLBACK_TO_FULL = True
 DEFAULT_CONTEXT_INCLUDE_TESTS = True
+DEFAULT_REQUIRE_CLEAN_WORKSPACE = True
+DEFAULT_MAX_CHANGED_FILES = 8
+DEFAULT_MAX_CHANGED_LINES = 400
 
 
 def load_dotenv_file(path: Path) -> None:
@@ -46,7 +50,7 @@ def save_trace(result: AgentResult, output_dir: Path) -> Path:
         result.environment = collect_environment(result.workspace)
     if result.final_summary is None:
         result.final_summary = final_summary(result)
-    trace_path = output_dir / f"run_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+    trace_path = output_dir / f"run_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}.json"
     trace_path.write_text(
         json.dumps(asdict(result), ensure_ascii=False, indent=2),
         encoding="utf-8",
@@ -57,6 +61,7 @@ def save_trace(result: AgentResult, output_dir: Path) -> Path:
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run PyFixAgent on a configured local Python workspace.")
+    parser.add_argument("--version", action="version", version=f"PyFixAgent {__version__}")
     parser.add_argument(
         "--config",
         default=DEFAULT_CONFIG_PATH,
@@ -79,6 +84,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=int,
         help="Maximum repair iterations. Overrides agent.max_iterations in config.",
     )
+    parser.add_argument(
+        "--allow-dirty",
+        action="store_true",
+        help="Allow running in a workspace with uncommitted changes. Disabled by default for safety.",
+    )
+    parser.add_argument(
+        "--allowed-path",
+        action="append",
+        dest="allowed_paths",
+        help="Restrict edits to this workspace-relative path. May be specified more than once.",
+    )
     return parser.parse_args(argv)
 
 
@@ -89,6 +105,7 @@ def resolve_runtime_config(project_root: Path, args: argparse.Namespace) -> dict
     agent_config = config.get("agent", {})
     context_config = config.get("context", {})
     sandbox_config = config.get("sandbox", {})
+    safety_config = config.get("safety", {})
 
     workspace = _resolve_path(project_root, args.workspace or paths_config.get("workspace", DEFAULT_WORKSPACE))
     return {
@@ -118,6 +135,16 @@ def resolve_runtime_config(project_root: Path, args: argparse.Namespace) -> dict
         ),
         "context_include_tests": _as_bool(context_config.get("include_tests", DEFAULT_CONTEXT_INCLUDE_TESTS)),
         "sandbox_timeout": int(sandbox_config.get("timeout_seconds", 30)),
+        "require_clean_workspace": (
+            False
+            if getattr(args, "allow_dirty", False)
+            else _as_bool(safety_config.get("require_clean_workspace", DEFAULT_REQUIRE_CLEAN_WORKSPACE))
+        ),
+        "allowed_paths": (
+            list(getattr(args, "allowed_paths", None) or safety_config.get("allowed_paths", []) or [])
+        ),
+        "max_changed_files": int(safety_config.get("max_changed_files", DEFAULT_MAX_CHANGED_FILES)),
+        "max_changed_lines": int(safety_config.get("max_changed_lines", DEFAULT_MAX_CHANGED_LINES)),
     }
 
 
@@ -129,7 +156,7 @@ def build_litellm_model_name(model_config: dict) -> str:
     return f"{provider}/{model_name}" if provider else model_name
 
 
-def main(argv: list[str] | None = None) -> None:
+def main(argv: list[str] | None = None) -> int:
     project_root = Path(__file__).resolve().parents[1]
     args = parse_args(argv)
     load_dotenv_file(project_root / ".env")
@@ -167,11 +194,20 @@ def main(argv: list[str] | None = None) -> None:
         context_max_files=runtime["context_max_files"],
         context_fallback_to_full=runtime["context_fallback_to_full"],
         context_include_tests=runtime["context_include_tests"],
+        require_clean_workspace=runtime["require_clean_workspace"],
+        allowed_paths=runtime["allowed_paths"],
+        max_changed_files=runtime["max_changed_files"],
+        max_changed_lines=runtime["max_changed_lines"],
     )
     result = agent.run(runtime["task"])
     trace_path = save_trace(result, runtime["trace_output_dir"])
     print(f"[agent] trace saved to {trace_path}")
     pprint(result)
+    return 0 if result.success else 1
+
+
+def cli() -> None:
+    raise SystemExit(main())
 
 
 def _resolve_path(project_root: Path, raw_path: str | Path) -> Path:
@@ -188,4 +224,4 @@ def _as_bool(value) -> bool:
 
 
 if __name__ == "__main__":
-    main()
+    cli()

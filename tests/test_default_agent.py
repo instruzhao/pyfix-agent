@@ -365,3 +365,26 @@ def test_initial_pytest_passes_does_not_call_model(tmp_path):
     assert result.success
     assert model.calls == 0
     assert result.iterations == []
+
+
+def test_clean_workspace_guard_stops_before_pytest_and_model(tmp_path):
+    workspace = init_workspace(
+        tmp_path,
+        "def add(a, b):\n    return a + b\n",
+        "from calculator import add\n\ndef test_add():\n    assert add(1, 2) == 3\n",
+    )
+    model = MockModel([])
+    agent = DefaultAgent(
+        model=model,
+        sandbox=LocalSandbox(workspace),
+        patch_output_dir=tmp_path / "patches",
+        require_clean_workspace=True,
+    )
+
+    result = agent.run("Fix tests.")
+
+    assert result.success is False
+    assert result.iterations == []
+    assert result.workspace_strategy == "in_place_clean_guard"
+    assert "no HEAD commit" in (result.error or "") or "uncommitted changes" in (result.error or "")
+    assert model.calls == 0

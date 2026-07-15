@@ -12,6 +12,7 @@ venv/
 *.egg-info/
 outputs/patches/*
 outputs/traces/*
+outputs/benchmarks/*
 outputs/*.log
 !outputs/patches/.gitkeep
 !outputs/traces/.gitkeep
