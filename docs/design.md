@@ -31,7 +31,6 @@ PyFixAgent is not trying to be a production coding agent. The current scope excl
 - AST editor
 - complex import graph
 - large benchmark platform
-- broad refactoring of the repair loop
 
 ## Agent Loop
 
@@ -47,6 +46,28 @@ The default agent starts by scanning the workspace and running pytest. If tests 
 - records a structured iteration trace
 
 The loop stops when pytest passes or `max_iterations` is reached.
+
+## v0.4 Component Architecture
+
+v0.4 keeps the public `DefaultAgent` API and trace schema stable while separating internal responsibilities. `DefaultAgent` is now an assembly facade; `RepairEngine` owns only the deterministic state machine and delegates focused work:
+
+- `WorkspaceSession` inspects the Git baseline, applies the clean-workspace guard, scans files, and creates artifact paths.
+- `TestRunner` is the only visible-test execution boundary.
+- `ContextProvider` parses failures and selects prompt context.
+- `PromptBuilder` renders mode-specific prompts and retry feedback.
+- `ModelClient` owns provider calls, duration, and token metadata.
+- `PatchBackend` and `ReplacementBackend` independently parse, validate, and apply their edit formats.
+- `AttemptEvaluator` maps attempt facts into the stable structured trace schema.
+- `RetryPolicy` owns retry and patch-to-replacement mode-switch decisions.
+
+The repair sequence is explicit:
+
+    PREPARE -> RUN_TESTS -> SELECT_CONTEXT -> BUILD_PROMPT -> GENERATE_EDIT
+    -> VALIDATE_AND_APPLY -> VERIFY -> EVALUATE -> RETRY_OR_STOP
+
+The benchmark follows the same boundary rule. Manifest parsing, isolated workspace lifecycle, holdout execution, metrics, report rendering, and CLI handling live in separate modules under `pyfixagent/benchmarking/`. `pyfixagent.benchmark` remains a compatibility facade.
+
+The component boundaries use small data contracts (`RepairRequest`, `ContextBundle`, `EditProposal`, `ApplyResult`, and `RetryDecision`) instead of passing mutable agent internals between responsibilities. This makes an edit backend or retry policy independently testable without invoking a model or running the complete agent.
 
 ## Repair Modes
 

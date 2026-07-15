@@ -49,9 +49,16 @@ Do not modify tests/.
 Do not output incomplete hunks.
 Make sure every hunk header line count matches the actual hunk body.
 Keep imports that are still used by the file.
+Repair the underlying API behavior, not only the exact visible assertions.
+Before editing, infer the contract from names, docstrings, types, callers, current code, and tests.
+Check normal and boundary inputs, equivalent valid representations, and already-normalized values.
+For normalization code, prefer behavior that is stable when input is already normalized.
+Silently challenge the proposed logic with input structure that is absent, repeated, or already present.
+Pay special attention to split, partition, prefix, suffix, and stripping operations; do not output this analysis.
+Do not hard-code outputs for individual test examples.
 You may be given selected relevant snippets instead of the full project.
 Do not assume unrelated files unless necessary.
-If the provided context is insufficient, make the smallest reasonable fix based on the failure and selected code."""
+If the provided context is insufficient, make the smallest robust fix based on the failure and selected code."""
 
 REPLACEMENT_PROMPT = """Task:
 {task}
@@ -98,9 +105,16 @@ Each replacement should be small and precise.
 Only modify task-allowed Python source files.
 Do not modify tests/.
 If multiple files need changes, return multiple objects in the JSON array.
+Repair the underlying API behavior, not only the exact visible assertions.
+Before editing, infer the contract from names, docstrings, types, callers, current code, and tests.
+Check normal and boundary inputs, equivalent valid representations, and already-normalized values.
+For normalization code, prefer behavior that is stable when input is already normalized.
+Silently challenge the proposed logic with input structure that is absent, repeated, or already present.
+Pay special attention to split, partition, prefix, suffix, and stripping operations; do not output this analysis.
+Do not hard-code outputs for individual test examples.
 You may be given selected relevant snippets instead of the full project.
 Do not assume unrelated files unless necessary.
-If the provided context is insufficient, make the smallest reasonable fix based on the failure and selected code.
+If the provided context is insufficient, make the smallest robust fix based on the failure and selected code.
 
 Example JSON array:
 [

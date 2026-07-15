@@ -212,3 +212,20 @@ def test_case_validation_requires_failing_visible_baseline_and_external_holdout(
     result = validate_benchmark_cases([case])[0]
 
     assert result["valid"] is True
+
+
+def test_fixture_copy_ignores_python_bytecode(tmp_path):
+    fixture = tmp_path / "fixture"
+    (fixture / "src" / "__pycache__").mkdir(parents=True)
+    (fixture / "tests").mkdir()
+    (fixture / "src" / "app.py").write_text("value = 1\n", encoding="utf-8")
+    (fixture / "src" / "__pycache__" / "app.pyc").write_bytes(b"bytecode")
+    (fixture / "tests" / "test_visible.py").write_text("def test_value():\n    assert False\n", encoding="utf-8")
+    case = BenchmarkCase(case_id="clean-copy", allowed_paths=("src",), fixture=fixture)
+    from pyfixagent.benchmarking.workspace import IsolatedWorkspaceFactory
+
+    factory = IsolatedWorkspaceFactory(tmp_path, tmp_path / "outputs")
+    workspace = factory.prepare(case, "traceback", 1)
+
+    assert not (workspace / "src" / "__pycache__").exists()
+    assert factory.cleanup(case, workspace) is None

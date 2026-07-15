@@ -47,6 +47,8 @@ def parse_replacements(raw_output: str) -> list[ReplacementEdit]:
             raise ValueError(f"replacement item {index} field path must not be empty")
         if item["old"] == "":
             raise ValueError(f"replacement item {index} field old must not be empty")
+        if item["old"] == item["new"]:
+            raise ValueError(f"replacement item {index} old and new must differ")
 
         start_line = item.get("start_line")
         if start_line is not None:
