@@ -13,6 +13,7 @@ from pyfixagent.models.base import BaseModel
 from pyfixagent.sandbox.local_sandbox import LocalSandbox
 from pyfixagent.schemas import AgentResult, IterationRecord
 from pyfixagent.tools.file_tools import list_files, read_python_files
+from pyfixagent.tools.edit_policy import EditPolicy
 from pyfixagent.tools.patch_tools import apply_patch, check_patch, clean_patch_text, get_git_diff, save_patch
 from pyfixagent.tools.replacement_tools import apply_replacements, parse_replacements
 from pyfixagent.tools.shell_tools import run_pytest
@@ -26,6 +27,7 @@ from pyfixagent.trace import (
     iteration_result,
     model_call_metadata,
 )
+from pyfixagent.workspace import clean_workspace_error, inspect_workspace
 
 
 class DefaultAgent:
@@ -41,6 +43,10 @@ class DefaultAgent:
         context_max_files: int = 6,
         context_fallback_to_full: bool = True,
         context_include_tests: bool = True,
+        require_clean_workspace: bool = False,
+        allowed_paths: list[str] | tuple[str, ...] | None = None,
+        max_changed_files: int = 8,
+        max_changed_lines: int = 400,
     ):
         self.model = model
         self.sandbox = sandbox
@@ -56,12 +62,26 @@ class DefaultAgent:
         self.context_max_files = max(1, context_max_files)
         self.context_fallback_to_full = context_fallback_to_full
         self.context_include_tests = context_include_tests
+        self.require_clean_workspace = require_clean_workspace
+        self.edit_policy = EditPolicy(
+            allowed_paths=tuple(allowed_paths or ()),
+            max_files=max(1, max_changed_files),
+            max_changed_lines=max(1, max_changed_lines),
+        )
 
     def run(self, task: str) -> AgentResult:
         state = AgentState(task=task, workspace=self.sandbox.workspace)
         patch_applied = False
 
         try:
+            workspace_state = inspect_workspace(state.workspace)
+            state.workspace_state = workspace_state.to_dict()
+            if self.require_clean_workspace:
+                workspace_error = clean_workspace_error(workspace_state)
+                if workspace_error:
+                    state.error = workspace_error
+                    return self._to_result(state, patch_applied)
+
             print("[agent] scanning workspace files...")
             state.file_tree = list_files(state.workspace)
 
@@ -129,7 +149,7 @@ class DefaultAgent:
                         model_call = model_call_metadata(self.model, time.perf_counter() - model_start)
                         edits = parse_replacements(raw_replacement)
                         replacement_edits = self._replacement_edits_to_dicts(edits)
-                        replacement_result = apply_replacements(state.workspace, edits)
+                        replacement_result = apply_replacements(state.workspace, edits, policy=self.edit_policy)
                     except Exception as exc:
                         if model_call.get("duration_seconds") is None:
                             model_call = model_call_metadata(self.model, time.perf_counter() - model_start)
@@ -354,7 +374,7 @@ class DefaultAgent:
                 save_patch(state.workspace, state.patch, patch_path)
 
                 print(f"[agent] iteration {iteration}/{self.max_iterations}: checking patch with git apply --check...")
-                check_result = check_patch(state.workspace, state.patch)
+                check_result = check_patch(state.workspace, state.patch, policy=self.edit_policy)
                 if not check_result.success:
                     consecutive_patch_check_failures += 1
                     if consecutive_patch_check_failures >= 2:
@@ -384,7 +404,7 @@ class DefaultAgent:
                     continue
 
                 print(f"[agent] iteration {iteration}/{self.max_iterations}: applying patch with git apply...")
-                patch_result = apply_patch(state.workspace, state.patch)
+                patch_result = apply_patch(state.workspace, state.patch, policy=self.edit_policy)
                 if not patch_result.success:
                     state.error = patch_result.error
                     state.iterations.append(
@@ -701,8 +721,7 @@ class DefaultAgent:
             model_call=model_call,
         )
 
-    @staticmethod
-    def _to_result(state: AgentState, patch_applied: bool) -> AgentResult:
+    def _to_result(self, state: AgentState, patch_applied: bool) -> AgentResult:
         result = AgentResult(
             task=state.task,
             workspace=str(state.workspace),
@@ -712,10 +731,13 @@ class DefaultAgent:
             test_output_after=state.test_output_after,
             patch=state.patch,
             iterations=state.iterations,
-            workspace_strategy="incremental_repair",
-            final_patch_command=DefaultAgent._final_patch_command(state, patch_applied),
+            workspace_strategy=(
+                "in_place_clean_guard" if self.require_clean_workspace else "incremental_repair"
+            ),
+            final_patch_command=self._final_patch_command(state, patch_applied),
             error=state.error,
             environment=collect_environment(state.workspace),
+            workspace_state=state.workspace_state,
         )
         result.final_summary = final_summary(result)
         return result

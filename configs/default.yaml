@@ -1,6 +1,6 @@
 model:
   provider: openai_compatible
-  name: glm-5
+  name: qwen3.6-flash
   api_base: https://dashscope.aliyuncs.com/compatible-mode/v1
   api_key_env: DASHSCOPE_API_KEY
   temperature: 0.0
@@ -15,6 +15,12 @@ paths:
 
 sandbox:
   timeout_seconds: 30
+
+safety:
+  require_clean_workspace: true
+  allowed_paths: []
+  max_changed_files: 8
+  max_changed_lines: 400
 
 context:
   strategy: traceback

@@ -1,7 +1,9 @@
 import argparse
 from pathlib import Path
 import subprocess
+from types import SimpleNamespace
 
+import pyfixagent.main as main_module
 from pyfixagent.main import parse_args, resolve_runtime_config
 
 
@@ -63,6 +65,7 @@ def test_cli_arguments_override_config(tmp_path):
     assert runtime["context_strategy"] == "traceback"
     assert runtime["max_iterations"] == 3
     assert runtime["context_line_window"] == 10
+    assert runtime["require_clean_workspace"] is True
 
 
 def test_missing_config_fields_use_code_defaults(tmp_path):
@@ -83,3 +86,38 @@ def test_missing_config_fields_use_code_defaults(tmp_path):
     assert runtime["initial_mode"] == "replacement"
     assert runtime["context_strategy"] == "traceback"
     assert runtime["max_iterations"] == 5
+    assert runtime["require_clean_workspace"] is True
+    assert runtime["max_changed_files"] == 8
+    assert runtime["max_changed_lines"] == 400
+
+
+def test_allow_dirty_disables_default_clean_workspace_guard(tmp_path):
+    config_path = tmp_path / "minimal.yaml"
+    config_path.write_text("model: {}\n", encoding="utf-8")
+
+    args = parse_args(["--config", str(config_path), "--allow-dirty", "--allowed-path", "src"])
+    runtime = resolve_runtime_config(tmp_path, args)
+
+    assert runtime["require_clean_workspace"] is False
+    assert runtime["allowed_paths"] == ["src"]
+
+
+def test_main_returns_nonzero_when_agent_does_not_repair(monkeypatch, tmp_path):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("model: {}\npaths:\n  workspace: workspace\n", encoding="utf-8")
+
+    class FakeAgent:
+        def __init__(self, **kwargs):
+            pass
+
+        def run(self, task):
+            return SimpleNamespace(success=False)
+
+    monkeypatch.setattr(main_module, "DefaultAgent", FakeAgent)
+    monkeypatch.setattr(main_module, "LiteLLMModel", lambda **kwargs: object())
+    monkeypatch.setattr(main_module, "save_trace", lambda result, output_dir: tmp_path / "trace.json")
+    monkeypatch.setattr(main_module, "pprint", lambda result: None)
+
+    exit_code = main_module.main(["--config", str(config_path), "--allow-dirty"])
+
+    assert exit_code == 1

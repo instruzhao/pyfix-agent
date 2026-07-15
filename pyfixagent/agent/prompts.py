@@ -38,10 +38,10 @@ Do not return explanations.
 Do not include any text before or after the patch.
 Paths must be relative to the workspace root.
 The patch must be a standard git unified diff.
-Every file block must start with:
-diff --git a/ml_iris_tree/model.py b/ml_iris_tree/model.py
---- a/ml_iris_tree/model.py
-+++ b/ml_iris_tree/model.py
+Every file block must start with headers like:
+diff --git a/package/module.py b/package/module.py
+--- a/package/module.py
++++ b/package/module.py
 Do not return traditional unified diff blocks that only contain --- and +++ without diff --git.
 The patch must be applicable by git apply --check.
 Only modify task-allowed source files.
@@ -105,10 +105,10 @@ If the provided context is insufficient, make the smallest reasonable fix based 
 Example JSON array:
 [
   {{
-    "path": "ml_iris_tree/data.py",
-    "old": "target_names = [\\\"iris\\\"]",
-    "new": "target_names = list(iris.target_names)",
-    "start_line": 16
+    "path": "package/module.py",
+    "old": "return incorrect_value",
+    "new": "return correct_value",
+    "start_line": 10
   }}
 ]
 """

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pyfixagent"
-version = "0.2.2"
+version = "0.3.1"
 description = "A small pytest-driven Python code repair agent."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -13,6 +13,10 @@ dependencies = [
     "pyyaml",
     "pytest",
 ]
+
+[project.scripts]
+pyfixagent = "pyfixagent.main:cli"
+pyfixagent-benchmark = "pyfixagent.benchmark:cli"
 
 [tool.setuptools.packages.find]
 include = ["pyfixagent*", "patch_eval*"]

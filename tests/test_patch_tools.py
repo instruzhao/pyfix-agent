@@ -1,10 +1,13 @@
 import subprocess
 
+from pyfixagent.tools.edit_policy import EditPolicy
+
 from pyfixagent.tools.patch_tools import (
     apply_patch,
     check_patch,
     clean_model_output,
     clean_patch_text,
+    get_git_diff,
     normalize_git_diff_headers,
     save_patch,
     validate_patch_format,
@@ -262,3 +265,43 @@ def test_check_patch_returns_git_apply_check_failed_for_context_mismatch(tmp_pat
 
     assert not result.success
     assert result.error and result.error.startswith("GIT_APPLY_CHECK_FAILED")
+
+
+def test_check_patch_enforces_allowed_path_policy(tmp_path):
+    (tmp_path / "src").mkdir()
+    (tmp_path / "other").mkdir()
+    (tmp_path / "other" / "app.py").write_text("old\n", encoding="utf-8")
+    subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(["git", "add", "."], cwd=tmp_path, check=True, capture_output=True)
+    patch = """diff --git a/other/app.py b/other/app.py
+--- a/other/app.py
++++ b/other/app.py
+@@ -1 +1 @@
+-old
++new
+"""
+
+    result = check_patch(tmp_path, patch, policy=EditPolicy(allowed_paths=("src",)))
+
+    assert not result.success
+    assert "EDIT_POLICY_REJECTED" in (result.error or "")
+    assert "outside allowed paths" in (result.error or "")
+
+
+def test_get_git_diff_is_scoped_to_workspace_subdirectory(tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    inside = workspace / "inside.py"
+    outside = tmp_path / "outside.py"
+    inside.write_text("value = 1\n", encoding="utf-8")
+    outside.write_text("value = 1\n", encoding="utf-8")
+    subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(["git", "add", "."], cwd=tmp_path, check=True, capture_output=True)
+    inside.write_text("value = 2\n", encoding="utf-8")
+    outside.write_text("value = 2\n", encoding="utf-8")
+
+    result = get_git_diff(workspace)
+
+    assert result.success
+    assert "workspace/inside.py" in result.stdout
+    assert "outside.py" not in result.stdout

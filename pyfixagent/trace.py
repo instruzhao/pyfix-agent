@@ -181,6 +181,7 @@ def collect_environment(workspace: str | Path) -> dict:
 
 def model_call_metadata(model: Any, duration_seconds: float | None = None) -> dict:
     provider = "mock" if model.__class__.__name__ == "MockModel" else "litellm" if hasattr(model, "model_name") else model.__class__.__name__
+    usage = getattr(model, "last_usage", {}) or {}
     return {
         "provider": provider,
         "model": getattr(model, "model_name", model.__class__.__name__),
@@ -188,6 +189,9 @@ def model_call_metadata(model: Any, duration_seconds: float | None = None) -> di
         "max_tokens": getattr(model, "max_tokens", None),
         "timeout": getattr(model, "timeout_seconds", None),
         "duration_seconds": duration_seconds,
+        "input_tokens": usage.get("input_tokens"),
+        "output_tokens": usage.get("output_tokens"),
+        "total_tokens": usage.get("total_tokens"),
     }
 
 

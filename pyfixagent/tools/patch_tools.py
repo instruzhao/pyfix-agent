@@ -3,6 +3,8 @@ import json
 from pathlib import Path
 import subprocess
 
+from pyfixagent.tools.edit_policy import EditPolicy, changed_lines_from_patch, paths_from_patch
+
 
 @dataclass
 class PatchApplyResult:
@@ -162,13 +164,21 @@ def save_patch(workspace: Path, patch_text: str, output_path: Path) -> Path:
         raise RuntimeError(f"failed to save patch to {output_path}: {exc}") from exc
 
 
-def check_patch(workspace: Path, patch_text: str, timeout: int = 30) -> PatchApplyResult:
+def check_patch(
+    workspace: Path,
+    patch_text: str,
+    timeout: int = 30,
+    policy: EditPolicy | None = None,
+) -> PatchApplyResult:
     workspace = Path(workspace)
     try:
         cleaned = clean_patch_text(patch_text)
         validation = validate_patch_format(cleaned)
         if not validation.success:
             return PatchApplyResult(success=False, error=f"{validation.error_code}: {validation.error}")
+        policy_error = _validate_edit_policy(cleaned, policy)
+        if policy_error:
+            return PatchApplyResult(success=False, error=f"EDIT_POLICY_REJECTED: {policy_error}")
 
         completed = _run_git_apply(workspace, cleaned, ["git", "apply", "--check", "-"], timeout)
         success = completed.returncode == 0
@@ -185,13 +195,21 @@ def check_patch(workspace: Path, patch_text: str, timeout: int = 30) -> PatchApp
         return PatchApplyResult(success=False, error=f"failed to check patch: {exc}")
 
 
-def apply_patch(workspace: Path, patch_text: str, timeout: int = 30) -> PatchApplyResult:
+def apply_patch(
+    workspace: Path,
+    patch_text: str,
+    timeout: int = 30,
+    policy: EditPolicy | None = None,
+) -> PatchApplyResult:
     workspace = Path(workspace)
     try:
         cleaned = clean_patch_text(patch_text)
         validation = validate_patch_format(cleaned)
         if not validation.success:
             return PatchApplyResult(success=False, error=f"{validation.error_code}: {validation.error}")
+        policy_error = _validate_edit_policy(cleaned, policy)
+        if policy_error:
+            return PatchApplyResult(success=False, error=f"EDIT_POLICY_REJECTED: {policy_error}")
 
         completed = _run_git_apply(workspace, cleaned, ["git", "apply", "-"], timeout)
         success = completed.returncode == 0
@@ -211,7 +229,7 @@ def get_git_diff(workspace: Path, timeout: int = 30) -> PatchApplyResult:
     workspace = Path(workspace)
     try:
         completed = subprocess.run(
-            ["git", "diff", "--"],
+            ["git", "diff", "--", "."],
             cwd=workspace,
             timeout=timeout,
             capture_output=True,
@@ -246,6 +264,15 @@ def _run_git_apply(
         capture_output=True,
         check=False,
     )
+
+
+def _validate_edit_policy(patch: str, policy: EditPolicy | None) -> str | None:
+    if policy is None:
+        return None
+    error = policy.validate_paths(paths_from_patch(patch))
+    if error:
+        return error
+    return policy.validate_changed_lines(changed_lines_from_patch(patch))
 
 
 def _strip_outer_code_fence(text: str) -> str:

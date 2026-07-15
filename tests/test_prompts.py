@@ -19,7 +19,9 @@ def test_replacement_prompt_example_is_valid_json():
 
     data = json.loads(example)
 
-    assert data[0]["old"] == 'target_names = ["iris"]'
+    assert data[0]["path"] == "package/module.py"
+    assert data[0]["old"] == "return incorrect_value"
+    assert data[0]["new"] == "return correct_value"
     assert "Current Python source files / selected context:" in prompt
     assert "selected relevant snippets" in prompt
 

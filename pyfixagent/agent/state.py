@@ -16,3 +16,4 @@ class AgentState:
     iterations: list[IterationRecord] = field(default_factory=list)
     success: bool = False
     error: str | None = None
+    workspace_state: dict | None = None
