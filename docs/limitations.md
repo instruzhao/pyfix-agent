@@ -10,6 +10,10 @@ The sandbox is a local command runner with command policy checks and subprocess 
 
 The agent is meant for small local Python workspaces where pytest output and a few source files are enough to reason about the failure.
 
+## Git Workspace Model
+
+The CLI requires a clean Git workspace by default and records the starting revision. Repairs still run in place; v0.3 does not yet create a temporary worktree or automatically roll back a failed iteration. `--allow-dirty` is an explicit escape hatch and can cause the final diff to include pre-existing changes.
+
 ## pytest Is the Main Validation Signal
 
 PyFixAgent treats pytest as the primary correctness signal. If tests are incomplete, flaky, slow, or misleading, the repair loop inherits those weaknesses.
