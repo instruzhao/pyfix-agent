@@ -21,6 +21,14 @@
 - component-level architecture tests in addition to end-to-end compatibility tests
 - four-repetition real-model benchmark report for release qualification
 
+## v0.4.1 CI and Benchmark Packaging — Completed
+
+- optional `benchmark` dependencies for the sklearn Iris fixture
+- benchmark protocol validation separated from the supported Python test matrix
+- workflow triggers limited to `main` pushes and pull requests targeting `main`
+- duplicate in-progress workflow runs cancelled per branch
+- package, CLI, and release documentation aligned on version 0.4.1
+
 ## Next: v0.5 Reliability and Isolation
 
 - per-iteration Git checkpoints and automatic rollback on regression
