@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from pyfixagent.context.builder import context_trace_metadata, render_selected_context
+from pyfixagent.context.policy import ContextPlan
 from pyfixagent.context.selector import select_context
 from pyfixagent.context.traceback_parser import parse_pytest_failure_output
 from pyfixagent.core.contracts import ContextBundle
@@ -26,20 +27,31 @@ class ContextProvider:
         self.fallback_to_full = fallback_to_full
         self.include_tests = include_tests
 
-    def build(self, workspace: Path, pytest_output: str) -> ContextBundle:
+    def build(
+        self,
+        workspace: Path,
+        pytest_output: str,
+        plan: ContextPlan | None = None,
+    ) -> ContextBundle:
+        effective = plan or ContextPlan(
+            strategy=self.strategy,
+            line_window=self.line_window,
+            max_files=self.max_files,
+            level=0,
+        )
         summary = parse_pytest_failure_output(pytest_output)
         selected = select_context(
             summary=summary,
             workspace=workspace,
-            strategy=self.strategy,
-            line_window=self.line_window,
-            max_files=self.max_files,
+            strategy=effective.strategy,
+            line_window=effective.line_window,
+            max_files=effective.max_files,
             fallback_to_full_context=self.fallback_to_full,
             include_tests=self.include_tests,
         )
         rendered = (
             read_python_files(workspace)
-            if self.strategy == "full"
+            if effective.strategy == "full"
             else render_selected_context(selected)
         )
         selected.prompt_chars = len(rendered)
@@ -53,4 +65,8 @@ class ContextProvider:
             {"path": frame.path, "line": frame.line, "function": frame.function}
             for frame in summary.frames
         ]
+        metadata["base_strategy"] = self.strategy
+        metadata["expansion_level"] = effective.level
+        metadata["effective_line_window"] = effective.line_window
+        metadata["effective_max_files"] = effective.max_files
         return ContextBundle(rendered=rendered, metadata=metadata)

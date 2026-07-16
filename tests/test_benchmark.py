@@ -15,6 +15,7 @@ from pyfixagent.benchmark import (
     validate_benchmark_cases,
 )
 from pyfixagent.models.mock_model import MockModel
+from pyfixagent.benchmarking.runner import _apply_exported_patch
 
 
 def test_load_manifest_validates_and_resolves_cases(tmp_path):
@@ -229,3 +230,27 @@ def test_fixture_copy_ignores_python_bytecode(tmp_path):
 
     assert not (workspace / "src" / "__pycache__").exists()
     assert factory.cleanup(case, workspace) is None
+
+
+def test_exported_patch_is_materialized_without_text_newline_translation(tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    source = workspace / "app.py"
+    source.write_bytes(b"value = 1\n")
+    subprocess.run(["git", "init"], cwd=workspace, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.email", "tests@example.com"], cwd=workspace, check=True)
+    subprocess.run(["git", "config", "user.name", "Tests"], cwd=workspace, check=True)
+    subprocess.run(["git", "add", "."], cwd=workspace, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "baseline"], cwd=workspace, check=True, capture_output=True)
+    patch = (
+        "diff --git a/app.py b/app.py\n"
+        "--- a/app.py\n"
+        "+++ b/app.py\n"
+        "@@ -1 +1 @@\n"
+        "-value = 1\n"
+        "+value = 2\n"
+    )
+
+    _apply_exported_patch(workspace, patch)
+
+    assert source.read_text(encoding="utf-8") == "value = 2\n"

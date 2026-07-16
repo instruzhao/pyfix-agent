@@ -75,6 +75,14 @@ Accepted partial improvements become worktree-local checkpoint commits. An itera
 
 `TestCommandPolicy` accepts argv lists that invoke `pytest` directly or through `python -m pytest`. Shell strings and shell operators are rejected. `TestRunner` executes configured commands in order and stops at the first failure, keeping command validation separate from process execution.
 
+## v0.5.1 Semantic Retry
+
+`RetryPolicy` consumes the normalized iteration result rather than raw pytest text. Partial progress requests a checkpoint and incremental repair. No progress and regressions request rollback plus context expansion. Test timeouts request rollback without pretending that a semantic failure was diagnosed.
+
+`ContextExpansionPolicy` does not select files. It emits a bounded plan consumed by `ContextProvider`: level 0 uses configured traceback context, level 1 doubles the line window and file limit, and level 2 can use full context when full fallback is enabled. The engine records the plan and policy reason but does not contain the classification rules.
+
+`PromptBuilder` converts the decision into generic feedback containing fixed, remaining, and newly introduced test IDs plus the actual checkpoint/rollback state. It does not add project-specific business rules or expose benchmark holdouts.
+
 The component boundaries use small data contracts (`RepairRequest`, `ContextBundle`, `EditProposal`, `ApplyResult`, and `RetryDecision`) instead of passing mutable agent internals between responsibilities. This makes an edit backend or retry policy independently testable without invoking a model or running the complete agent.
 
 ## Repair Modes
@@ -141,7 +149,7 @@ Generated patches and traces are stored under `outputs/`, which is ignored excep
 
 PyFixAgent records failure type instead of flattening everything into a generic error. Iteration results can distinguish parse failures, apply failures, incomplete fixes, no progress, regressions, timeouts, and successful repairs.
 
-When an edit applies but pytest still fails, the agent keeps the workspace in its current modified state and asks for an incremental repair against the new failure output. This behavior is recorded as an incremental repair strategy.
+When an edit applies but pytest still fails, `AttemptEvaluator` classifies the failure delta and `RetryPolicy` chooses the next workspace action. Partial progress is checkpointed for an incremental repair. No progress or a regression is rolled back in transactional mode before retrying with expanded context. In-place compatibility mode cannot provide rollback and records that the modified workspace was retained.
 
 ## Limitations
 

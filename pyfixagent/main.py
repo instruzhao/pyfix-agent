@@ -26,6 +26,7 @@ DEFAULT_MAX_ITERATIONS = 5
 DEFAULT_CONTEXT_STRATEGY = "traceback"
 DEFAULT_CONTEXT_LINE_WINDOW = 40
 DEFAULT_CONTEXT_MAX_FILES = 6
+DEFAULT_CONTEXT_MAX_EXPANSION_LEVEL = 2
 DEFAULT_CONTEXT_FALLBACK_TO_FULL = True
 DEFAULT_CONTEXT_INCLUDE_TESTS = True
 DEFAULT_REQUIRE_CLEAN_WORKSPACE = True
@@ -138,6 +139,9 @@ def resolve_runtime_config(project_root: Path, args: argparse.Namespace) -> dict
         "context_strategy": args.context_strategy or context_config.get("strategy", DEFAULT_CONTEXT_STRATEGY),
         "context_line_window": int(context_config.get("line_window", DEFAULT_CONTEXT_LINE_WINDOW)),
         "context_max_files": int(context_config.get("max_files", DEFAULT_CONTEXT_MAX_FILES)),
+        "context_max_expansion_level": int(
+            context_config.get("max_expansion_level", DEFAULT_CONTEXT_MAX_EXPANSION_LEVEL)
+        ),
         "context_fallback_to_full": _as_bool(
             context_config.get("fallback_to_full_context", DEFAULT_CONTEXT_FALLBACK_TO_FULL)
         ),
@@ -170,6 +174,18 @@ def build_litellm_model_name(model_config: dict) -> str:
     return f"{provider}/{model_name}" if provider else model_name
 
 
+def build_model_extra_body(model_config: dict) -> dict:
+    extra_body = {"enable_thinking": _as_bool(model_config.get("enable_thinking", False))}
+    thinking_budget = model_config.get("thinking_budget")
+    if thinking_budget is not None:
+        extra_body["thinking_budget"] = max(1, int(thinking_budget))
+    return extra_body
+
+
+def build_system_prompt_as_user(model_config: dict) -> bool:
+    return _as_bool(model_config.get("system_prompt_as_user", False))
+
+
 def main(argv: list[str] | None = None) -> int:
     project_root = Path(__file__).resolve().parents[1]
     args = parse_args(argv)
@@ -189,7 +205,8 @@ def main(argv: list[str] | None = None) -> int:
         temperature=float(model_config.get("temperature", 0.0)),
         max_tokens=int(model_config.get("max_tokens", 2000)),
         timeout_seconds=int(model_config.get("timeout_seconds", 60)),
-        extra_body={"enable_thinking": bool(model_config.get("enable_thinking", False))},
+        extra_body=build_model_extra_body(model_config),
+        system_prompt_as_user=build_system_prompt_as_user(model_config),
     )
 
     sandbox = LocalSandbox(
@@ -206,6 +223,7 @@ def main(argv: list[str] | None = None) -> int:
         context_strategy=runtime["context_strategy"],
         context_line_window=runtime["context_line_window"],
         context_max_files=runtime["context_max_files"],
+        context_max_expansion_level=runtime["context_max_expansion_level"],
         context_fallback_to_full=runtime["context_fallback_to_full"],
         context_include_tests=runtime["context_include_tests"],
         require_clean_workspace=runtime["require_clean_workspace"],

@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from pyfixagent.context.provider import ContextProvider
+from pyfixagent.context.policy import ContextExpansionPolicy
 from pyfixagent.core.contracts import RepairRequest
 from pyfixagent.core.engine import RepairEngine
 from pyfixagent.execution.test_runner import TestRunner
@@ -31,6 +32,7 @@ class DefaultAgent:
         context_strategy: str = "traceback",
         context_line_window: int = 40,
         context_max_files: int = 6,
+        context_max_expansion_level: int = 2,
         context_fallback_to_full: bool = True,
         context_include_tests: bool = True,
         require_clean_workspace: bool = False,
@@ -52,6 +54,7 @@ class DefaultAgent:
         self.context_strategy = context_strategy
         self.context_line_window = max(0, context_line_window)
         self.context_max_files = max(1, context_max_files)
+        self.context_max_expansion_level = max(0, context_max_expansion_level)
         self.context_fallback_to_full = context_fallback_to_full
         self.context_include_tests = context_include_tests
         self.require_clean_workspace = require_clean_workspace
@@ -89,6 +92,7 @@ class DefaultAgent:
                 fallback_to_full=self.context_fallback_to_full,
                 include_tests=self.context_include_tests,
             ),
+            context_policy=ContextExpansionPolicy(self.context_max_expansion_level),
             prompt_builder=PromptBuilder(),
             model_client=ModelClient(self.model),
             backends={

@@ -70,6 +70,44 @@ class PromptBuilder:
             f"Pytest output after previous replacement:\n{test_output}"
         )
 
+    @staticmethod
+    def semantic_test_failure(
+        *,
+        mode: RepairMode,
+        failure_type: str,
+        delta: dict,
+        test_output: str,
+        rolled_back: bool,
+        context_expansion_level: int,
+    ) -> str:
+        fixed = ", ".join(delta.get("fixed") or []) or "none"
+        remaining = ", ".join(delta.get("remaining") or []) or "none"
+        new = ", ".join(delta.get("new") or []) or "none"
+        if rolled_back:
+            workspace_note = (
+                "The previous edit was rolled back. Generate a different repair against the restored source."
+            )
+        else:
+            workspace_note = (
+                "The previous edit was checkpointed. Generate an incremental repair against the current source."
+            )
+        output_rule = (
+            "Return only a JSON array of exact replacements."
+            if mode == "replacement"
+            else "Return only a valid unified diff patch."
+        )
+        return (
+            f"The previous edit produced semantic outcome: {failure_type}.\n"
+            f"{workspace_note}\n"
+            f"Context expansion level for the next attempt: {context_expansion_level}.\n"
+            f"Fixed failures: {fixed}\n"
+            f"Remaining failures: {remaining}\n"
+            f"New failures: {new}\n"
+            "Re-evaluate the general behavior and use the expanded current context; do not hard-code examples.\n"
+            f"{output_rule}\n"
+            f"Pytest output after the previous edit:\n{test_output}"
+        )
+
     def apply_failure(self, result: ApplyResult) -> str:
         if result.mode == "replacement":
             return self.replacement_failure(result.raw_output, result.error or "")

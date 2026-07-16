@@ -1,6 +1,11 @@
 from pathlib import Path
 
-from pyfixagent.main import parse_args, resolve_runtime_config
+from pyfixagent.main import (
+    build_model_extra_body,
+    build_system_prompt_as_user,
+    parse_args,
+    resolve_runtime_config,
+)
 
 
 def test_default_config_matches_documented_defaults():
@@ -12,8 +17,19 @@ def test_default_config_matches_documented_defaults():
     assert runtime["max_iterations"] == 5
     assert runtime["context_line_window"] == 25
     assert runtime["context_max_files"] == 6
+    assert runtime["context_max_expansion_level"] == 2
     assert runtime["context_fallback_to_full"] is True
     assert runtime["context_include_tests"] is True
     assert runtime["isolate_workspace"] is True
     assert runtime["test_commands"] == (("python", "-m", "pytest", "-p", "no:cacheprovider"),)
     assert runtime["config"]["model"]["name"] == "qwen3.6-max-preview"
+    assert build_model_extra_body(runtime["config"]["model"]) == {
+        "enable_thinking": True,
+        "thinking_budget": 4096,
+    }
+    assert runtime["config"]["model"]["system_prompt_as_user"] is True
+
+
+def test_system_prompt_message_mode_parses_string_booleans():
+    assert build_system_prompt_as_user({"system_prompt_as_user": "true"}) is True
+    assert build_system_prompt_as_user({"system_prompt_as_user": "false"}) is False

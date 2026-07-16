@@ -9,7 +9,12 @@ from pyfixagent.benchmarking.manifest import load_manifest, validate_benchmark_c
 from pyfixagent.benchmarking.paths import resolve
 from pyfixagent.benchmarking.reporting import render_markdown
 from pyfixagent.benchmarking.runner import run_benchmark
-from pyfixagent.main import build_litellm_model_name, load_dotenv_file
+from pyfixagent.main import (
+    build_litellm_model_name,
+    build_model_extra_body,
+    build_system_prompt_as_user,
+    load_dotenv_file,
+)
 from pyfixagent.execution.test_policy import normalize_test_commands
 from pyfixagent.models.base import BaseModel
 from pyfixagent.models.litellm_model import LiteLLMModel
@@ -66,7 +71,8 @@ def main(argv: list[str] | None = None) -> int:
             temperature=float(model_config.get("temperature", 0.0)),
             max_tokens=int(model_config.get("max_tokens", 2000)),
             timeout_seconds=int(model_config.get("timeout_seconds", 60)),
-            extra_body={"enable_thinking": bool(model_config.get("enable_thinking", False))},
+            extra_body=build_model_extra_body(model_config),
+            system_prompt_as_user=build_system_prompt_as_user(model_config),
         )
 
     output_dir = resolve(project_root, args.output_dir)
@@ -81,6 +87,7 @@ def main(argv: list[str] | None = None) -> int:
         sandbox_timeout=int(config.get("sandbox", {}).get("timeout_seconds", 30)),
         context_line_window=int(config.get("context", {}).get("line_window", 25)),
         context_max_files=int(config.get("context", {}).get("max_files", 6)),
+        context_max_expansion_level=int(config.get("context", {}).get("max_expansion_level", 2)),
         max_changed_files=int(config.get("safety", {}).get("max_changed_files", 8)),
         max_changed_lines=int(config.get("safety", {}).get("max_changed_lines", 400)),
         test_commands=normalize_test_commands(config.get("test", {}).get("commands")),
