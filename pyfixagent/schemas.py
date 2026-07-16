@@ -33,6 +33,9 @@ class IterationRecord:
     apply: dict | None = None
     edit_summary: dict | None = None
     model_call: dict | None = None
+    workspace_action: str | None = None
+    retry_reason: str | None = None
+    context_expansion_level: int = 0
 
 
 @dataclass
@@ -50,5 +53,6 @@ class AgentResult:
     error: str | None = None
     environment: dict | None = None
     final_summary: dict | None = None
-    trace_schema_version: str = "1.0"
+    trace_schema_version: str = "1.1"
     workspace_state: dict | None = None
+    final_patch_path: str = ""

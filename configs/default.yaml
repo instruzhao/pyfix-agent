@@ -1,6 +1,6 @@
 model:
   provider: openai_compatible
-  name: qwen3.6-flash
+  name: qwen3.6-max-preview
   api_base: https://dashscope.aliyuncs.com/compatible-mode/v1
   api_key_env: DASHSCOPE_API_KEY
   temperature: 0.0
@@ -16,8 +16,13 @@ paths:
 sandbox:
   timeout_seconds: 30
 
+test:
+  commands:
+    - [python, -m, pytest, -p, no:cacheprovider]
+
 safety:
   require_clean_workspace: true
+  isolate_workspace: true
   allowed_paths: []
   max_changed_files: 8
   max_changed_lines: 400

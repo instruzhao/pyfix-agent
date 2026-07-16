@@ -1,7 +1,8 @@
 from dataclasses import dataclass
+from pathlib import Path
 
+from pyfixagent.execution.test_policy import TestCommandPolicy
 from pyfixagent.sandbox.local_sandbox import CommandResult, LocalSandbox
-from pyfixagent.tools.shell_tools import run_pytest
 
 
 @dataclass(frozen=True)
@@ -9,6 +10,7 @@ class TestExecution:
     exit_code: int
     output: str
     command_result: CommandResult
+    command_results: tuple[CommandResult, ...] = ()
 
     @property
     def success(self) -> bool:
@@ -18,15 +20,33 @@ class TestExecution:
 class TestRunner:
     """Runs and formats the project's visible pytest suite."""
 
-    def __init__(self, sandbox: LocalSandbox):
+    def __init__(
+        self,
+        sandbox: LocalSandbox,
+        commands: tuple[tuple[str, ...], ...] | None = None,
+        policy: TestCommandPolicy | None = None,
+    ):
         self.sandbox = sandbox
+        self.policy = policy or TestCommandPolicy()
+        raw_commands = commands or (("python", "-m", "pytest", "-p", "no:cacheprovider"),)
+        self.commands = tuple(self.policy.validate(command) for command in raw_commands)
 
-    def run(self) -> TestExecution:
-        result = run_pytest(self.sandbox)
+    def run(self, workspace: Path | None = None) -> TestExecution:
+        sandbox = self.sandbox
+        if workspace is not None and Path(workspace).resolve() != sandbox.workspace.resolve():
+            sandbox = LocalSandbox(Path(workspace), timeout_seconds=sandbox.timeout_seconds)
+        results: list[CommandResult] = []
+        for command in self.commands:
+            result = sandbox.run(list(command))
+            results.append(result)
+            if result.exit_code != 0:
+                break
+        result = results[-1]
         return TestExecution(
             exit_code=result.exit_code,
-            output=self.format_output(result),
+            output="\n\n".join(self.format_output(item) for item in results),
             command_result=result,
+            command_results=tuple(results),
         )
 
     @staticmethod

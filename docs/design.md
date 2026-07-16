@@ -67,6 +67,14 @@ The repair sequence is explicit:
 
 The benchmark follows the same boundary rule. Manifest parsing, isolated workspace lifecycle, holdout execution, metrics, report rendering, and CLI handling live in separate modules under `pyfixagent/benchmarking/`. `pyfixagent.benchmark` remains a compatibility facade.
 
+## v0.5 Transactional Execution
+
+The default CLI and benchmark paths repair a detached temporary Git worktree. `WorkspaceTransaction` exclusively owns worktree creation, Git checkpoints, rollback, final diff export, and cleanup. `WorkspaceSession` connects that lifecycle to file-tree discovery and patch artifact paths; `RepairEngine` only requests lifecycle actions based on normalized outcomes.
+
+Accepted partial improvements become worktree-local checkpoint commits. An iteration that introduces new failing tests is rolled back to the last checkpoint before another model call. A successful run exports one aggregate patch from the original revision through the final checkpoint, then removes the temporary worktree. The selected checkout remains unchanged until a user explicitly applies the exported patch.
+
+`TestCommandPolicy` accepts argv lists that invoke `pytest` directly or through `python -m pytest`. Shell strings and shell operators are rejected. `TestRunner` executes configured commands in order and stops at the first failure, keeping command validation separate from process execution.
+
 The component boundaries use small data contracts (`RepairRequest`, `ContextBundle`, `EditProposal`, `ApplyResult`, and `RetryDecision`) instead of passing mutable agent internals between responsibilities. This makes an edit backend or retry policy independently testable without invoking a model or running the complete agent.
 
 ## Repair Modes

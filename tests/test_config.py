@@ -14,3 +14,6 @@ def test_default_config_matches_documented_defaults():
     assert runtime["context_max_files"] == 6
     assert runtime["context_fallback_to_full"] is True
     assert runtime["context_include_tests"] is True
+    assert runtime["isolate_workspace"] is True
+    assert runtime["test_commands"] == (("python", "-m", "pytest", "-p", "no:cacheprovider"),)
+    assert runtime["config"]["model"]["name"] == "qwen3.6-max-preview"

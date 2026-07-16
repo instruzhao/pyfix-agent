@@ -12,7 +12,7 @@ The agent is meant for small local Python workspaces where pytest output and a f
 
 ## Git Workspace Model
 
-The CLI requires a clean Git workspace by default and records the starting revision. Repairs still run in place; v0.3 does not yet create a temporary worktree or automatically roll back a failed iteration. `--allow-dirty` is an explicit escape hatch and can cause the final diff to include pre-existing changes.
+The CLI requires a Git repository with a HEAD commit and requires a clean selected workspace by default. v0.5 repairs a detached temporary worktree, checkpoints accepted iterations, rolls back regressions, exports a patch, and removes the worktree. This protects the selected checkout from repair mutations, but it does not isolate executed code from the host. `--in-place` and `--allow-dirty` are explicit compatibility escape hatches with weaker guarantees.
 
 ## pytest Is the Main Validation Signal
 

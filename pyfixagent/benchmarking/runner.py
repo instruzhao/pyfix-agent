@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from pathlib import Path
+import subprocess
 import time
 from typing import Callable
 
@@ -28,6 +29,7 @@ def run_benchmark(
     context_max_files: int = 6,
     max_changed_files: int = 8,
     max_changed_lines: int = 400,
+    test_commands: tuple[tuple[str, ...], ...] | None = None,
 ) -> dict:
     if repeat < 1:
         raise ValueError("repeat must be at least 1")
@@ -59,8 +61,12 @@ def run_benchmark(
                         allowed_paths=case.allowed_paths,
                         max_changed_files=max_changed_files,
                         max_changed_lines=max_changed_lines,
+                        isolate_workspace=True,
+                        test_commands=test_commands,
                     )
                     result = agent.run(case.agent_task)
+                    if result.success and result.patch:
+                        _apply_exported_patch(workspace, result.patch)
                     holdout = holdout_evaluator.run(case, workspace)
                     trace_path = save_trace(result, trace_dir)
                     runs.append(
@@ -147,6 +153,8 @@ def build_run_record(case, strategy, repetition, result, holdout, trace_path, wo
         "failure_type": failure_type,
         "trace_path": str(trace_path),
         "workspace": str(workspace),
+        "workspace_strategy": result.workspace_strategy,
+        "final_patch_path": result.final_patch_path,
     }
 
 
@@ -170,3 +178,19 @@ def build_runner_error(case, strategy, repetition, exc, started):
         "failure_type": "runner_error",
         "trace_path": None,
     }
+
+
+def _apply_exported_patch(workspace: Path, patch: str) -> None:
+    for args in (["apply", "--check", "-"], ["apply", "-"]):
+        completed = subprocess.run(
+            ["git", *args],
+            cwd=workspace,
+            input=patch,
+            timeout=30,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if completed.returncode != 0:
+            message = completed.stderr.strip() or completed.stdout.strip()
+            raise RuntimeError(f"exported patch could not be materialized: {message}")

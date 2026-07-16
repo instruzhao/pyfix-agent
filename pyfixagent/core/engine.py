@@ -43,19 +43,25 @@ class RepairEngine:
         self.retry_policy = retry_policy
 
     def run(self, request: RepairRequest) -> AgentResult:
-        state = AgentState(task=request.task, workspace=request.workspace)
+        state = AgentState(
+            task=request.task,
+            workspace=request.workspace,
+            original_workspace=request.workspace,
+        )
         patch_applied = False
         try:
             prepared = self.workspace_session.prepare()
             state.workspace_state = prepared.state
+            state.workspace_strategy = prepared.strategy
             if prepared.error:
                 state.error = prepared.error
                 return self._to_result(state, patch_applied)
+            state.workspace = prepared.workspace
             state.file_tree = prepared.file_tree
 
             print("[agent] scanning workspace files...")
             print("[agent] running pytest before fix...")
-            before = self.test_runner.run()
+            before = self.test_runner.run(state.workspace)
             state.test_output_before = before.output
             if before.success:
                 print("[agent] tests already pass; no patch needed.")
@@ -127,8 +133,7 @@ class RepairEngine:
 
                 if not backend_result.success:
                     state.error = backend_result.error
-                    state.iterations.append(
-                        self.evaluator.apply_record(
+                    record = self.evaluator.apply_record(
                             iteration=iteration,
                             proposal=proposal,
                             result=backend_result,
@@ -136,7 +141,10 @@ class RepairEngine:
                             context=context.metadata,
                             test_summary_before=summary_before,
                         )
-                    )
+                    if backend_result.applied_to_workspace and state.workspace_strategy == "temporary_git_worktree":
+                        self.workspace_session.rollback()
+                        record.workspace_action = "rolled_back_after_apply_failure"
+                    state.iterations.append(record)
                     decision = self.retry_policy.after_apply(backend_result)
                     feedback = (
                         self.prompt_builder.mode_switch_failure(backend_result, decision.next_mode)
@@ -157,12 +165,11 @@ class RepairEngine:
                     f"[agent] iteration {iteration}/{request.max_iterations}: "
                     f"running pytest after {operation}..."
                 )
-                after = self.test_runner.run()
+                after = self.test_runner.run(state.workspace)
                 state.test_output_after = after.output
                 state.success = after.success
                 state.error = None if state.success else f"tests still failed after applying {mode}"
-                state.iterations.append(
-                    self.evaluator.apply_record(
+                record = self.evaluator.apply_record(
                         iteration=iteration,
                         proposal=proposal,
                         result=backend_result,
@@ -173,12 +180,31 @@ class RepairEngine:
                         pytest_output=after.output,
                         success=state.success,
                     )
-                )
                 if state.success:
+                    self.workspace_session.checkpoint(iteration)
+                    record.workspace_action = (
+                        "checkpointed_success"
+                        if state.workspace_strategy == "temporary_git_worktree"
+                        else "kept_in_place"
+                    )
+                    state.iterations.append(record)
                     return self._to_result(state, patch_applied)
 
-                current_test_output = after.output
-                self.retry_policy.after_test_failure()
+                failure_type = (record.iteration_result or {}).get("failure_type")
+                if failure_type == "regression" and state.workspace_strategy == "temporary_git_worktree":
+                    self.workspace_session.rollback()
+                    record.workspace_action = "rolled_back_regression"
+                else:
+                    self.workspace_session.checkpoint(iteration)
+                    record.workspace_action = (
+                        "checkpointed_partial"
+                        if state.workspace_strategy == "temporary_git_worktree"
+                        else "kept_in_place"
+                    )
+                    current_test_output = after.output
+                state.iterations.append(record)
+                decision = self.retry_policy.after_test_failure()
+                record.retry_reason = decision.reason
                 feedback = (
                     self.prompt_builder.replacement_test_failure(after.output)
                     if mode == "replacement"
@@ -197,30 +223,42 @@ class RepairEngine:
             state.error = str(exc)
             state.success = False
             return self._to_result(state, patch_applied)
+        finally:
+            try:
+                self.workspace_session.close()
+            except Exception as exc:
+                print(f"[agent] warning: temporary workspace cleanup failed: {exc}")
 
     def _to_result(self, state: AgentState, patch_applied: bool) -> AgentResult:
+        if self.workspace_session.transaction.active is not None:
+            final_patch, final_patch_path = self.workspace_session.export_final_patch()
+            if state.workspace_strategy == "temporary_git_worktree":
+                state.patch = final_patch
+            if final_patch_path is not None:
+                state.final_patch_path = str(final_patch_path)
         result = AgentResult(
             task=state.task,
-            workspace=str(state.workspace),
+            workspace=str(state.original_workspace or state.workspace),
             success=state.success,
             patch_applied=patch_applied,
             test_output_before=state.test_output_before,
             test_output_after=state.test_output_after,
             patch=state.patch,
             iterations=state.iterations,
-            workspace_strategy=(
-                "in_place_clean_guard" if self.workspace_session.require_clean else "incremental_repair"
-            ),
+            workspace_strategy=state.workspace_strategy,
             final_patch_command=self._final_patch_command(state, patch_applied),
             error=state.error,
             environment=collect_environment(state.workspace),
             workspace_state=state.workspace_state,
+            final_patch_path=state.final_patch_path,
         )
         result.final_summary = final_summary(result)
         return result
 
     @staticmethod
     def _final_patch_command(state: AgentState, patch_applied: bool) -> str:
+        if state.workspace_strategy == "temporary_git_worktree" and state.final_patch_path:
+            return f'git apply "{state.final_patch_path}"'
         if patch_applied and state.patch:
             return "git diff --"
         if state.patch:
