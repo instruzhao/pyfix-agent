@@ -4,7 +4,7 @@ PyFixAgent writes structured JSON traces so a repair run can be inspected withou
 
 ## Top-level Fields
 
-`trace_schema_version` identifies the trace contract. v0.3 traces use schema `1.0`.
+`trace_schema_version` identifies the trace contract. v0.3–v0.4 traces use schema `1.0`; v0.5 traces use schema `1.1`.
 
 `task` records the natural-language task given to the agent.
 
@@ -17,6 +17,8 @@ PyFixAgent writes structured JSON traces so a repair run can be inspected withou
 `environment` records runtime information such as Python version, platform, cwd/workspace details, and pytest availability.
 
 `workspace_state` records the Git root, starting revision, dirty flag, and changed paths observed before the run. It does not contain file contents.
+
+`workspace_strategy` identifies whether the run used `temporary_git_worktree` or an explicit compatibility mode. `final_patch_path` and `final_patch_command` identify the exported repair artifact without implying that it was applied to the selected checkout.
 
 `final_summary` provides a compact final status for quick inspection.
 
@@ -67,6 +69,8 @@ This field makes partial progress and regressions visible without reading full p
 - `unknown`
 
 The result also includes a short reason so readers can quickly tell whether the problem was model formatting, edit application, test failure, or runtime execution.
+
+`workspace_action` records checkpoint and rollback decisions, such as `checkpointed_partial`, `checkpointed_success`, or `rolled_back_regression`. `retry_reason` records the policy decision separately from edit application.
 
 ## Model Output
 

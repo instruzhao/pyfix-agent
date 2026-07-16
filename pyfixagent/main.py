@@ -8,6 +8,7 @@ from pprint import pprint
 
 from pyfixagent.agent.default_agent import DefaultAgent
 from pyfixagent.models.litellm_model import LiteLLMModel
+from pyfixagent.execution.test_policy import normalize_test_commands
 from pyfixagent.sandbox.local_sandbox import LocalSandbox
 from pyfixagent.schemas import AgentResult
 from pyfixagent.trace import collect_environment, final_summary
@@ -30,6 +31,7 @@ DEFAULT_CONTEXT_INCLUDE_TESTS = True
 DEFAULT_REQUIRE_CLEAN_WORKSPACE = True
 DEFAULT_MAX_CHANGED_FILES = 8
 DEFAULT_MAX_CHANGED_LINES = 400
+DEFAULT_ISOLATE_WORKSPACE = True
 
 
 def load_dotenv_file(path: Path) -> None:
@@ -90,6 +92,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Allow running in a workspace with uncommitted changes. Disabled by default for safety.",
     )
     parser.add_argument(
+        "--in-place",
+        action="store_true",
+        help="Repair the selected workspace in place instead of using a temporary Git worktree.",
+    )
+    parser.add_argument(
         "--allowed-path",
         action="append",
         dest="allowed_paths",
@@ -106,6 +113,7 @@ def resolve_runtime_config(project_root: Path, args: argparse.Namespace) -> dict
     context_config = config.get("context", {})
     sandbox_config = config.get("sandbox", {})
     safety_config = config.get("safety", {})
+    test_config = config.get("test", {})
 
     workspace = _resolve_path(project_root, args.workspace or paths_config.get("workspace", DEFAULT_WORKSPACE))
     return {
@@ -145,6 +153,12 @@ def resolve_runtime_config(project_root: Path, args: argparse.Namespace) -> dict
         ),
         "max_changed_files": int(safety_config.get("max_changed_files", DEFAULT_MAX_CHANGED_FILES)),
         "max_changed_lines": int(safety_config.get("max_changed_lines", DEFAULT_MAX_CHANGED_LINES)),
+        "isolate_workspace": (
+            False
+            if getattr(args, "in_place", False)
+            else _as_bool(safety_config.get("isolate_workspace", DEFAULT_ISOLATE_WORKSPACE))
+        ),
+        "test_commands": normalize_test_commands(test_config.get("commands")),
     }
 
 
@@ -198,6 +212,8 @@ def main(argv: list[str] | None = None) -> int:
         allowed_paths=runtime["allowed_paths"],
         max_changed_files=runtime["max_changed_files"],
         max_changed_lines=runtime["max_changed_lines"],
+        isolate_workspace=runtime["isolate_workspace"],
+        test_commands=runtime["test_commands"],
     )
     result = agent.run(runtime["task"])
     trace_path = save_trace(result, runtime["trace_output_dir"])

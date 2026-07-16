@@ -10,6 +10,7 @@ from pyfixagent.benchmarking.paths import resolve
 from pyfixagent.benchmarking.reporting import render_markdown
 from pyfixagent.benchmarking.runner import run_benchmark
 from pyfixagent.main import build_litellm_model_name, load_dotenv_file
+from pyfixagent.execution.test_policy import normalize_test_commands
 from pyfixagent.models.base import BaseModel
 from pyfixagent.models.litellm_model import LiteLLMModel
 from pyfixagent.utils.config import load_config
@@ -82,6 +83,7 @@ def main(argv: list[str] | None = None) -> int:
         context_max_files=int(config.get("context", {}).get("max_files", 6)),
         max_changed_files=int(config.get("safety", {}).get("max_changed_files", 8)),
         max_changed_lines=int(config.get("safety", {}).get("max_changed_lines", 400)),
+        test_commands=normalize_test_commands(config.get("test", {}).get("commands")),
     )
     output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / "report.json").write_text(

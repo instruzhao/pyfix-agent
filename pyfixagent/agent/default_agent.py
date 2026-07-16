@@ -4,6 +4,7 @@ from pyfixagent.context.provider import ContextProvider
 from pyfixagent.core.contracts import RepairRequest
 from pyfixagent.core.engine import RepairEngine
 from pyfixagent.execution.test_runner import TestRunner
+from pyfixagent.execution.test_policy import normalize_test_commands
 from pyfixagent.execution.workspace_session import WorkspaceSession
 from pyfixagent.models.base import BaseModel
 from pyfixagent.repair.backends.patch import PatchBackend
@@ -18,7 +19,7 @@ from pyfixagent.tools.edit_policy import EditPolicy
 
 
 class DefaultAgent:
-    """Backward-compatible facade that assembles the v0.4 repair components."""
+    """Backward-compatible facade that assembles focused repair components."""
 
     def __init__(
         self,
@@ -36,6 +37,8 @@ class DefaultAgent:
         allowed_paths: list[str] | tuple[str, ...] | None = None,
         max_changed_files: int = 8,
         max_changed_lines: int = 400,
+        isolate_workspace: bool = False,
+        test_commands: list[list[str]] | tuple[tuple[str, ...], ...] | None = None,
     ):
         if initial_mode not in {"patch", "replacement"}:
             raise ValueError("initial_mode must be 'patch' or 'replacement'")
@@ -52,6 +55,10 @@ class DefaultAgent:
         self.context_fallback_to_full = context_fallback_to_full
         self.context_include_tests = context_include_tests
         self.require_clean_workspace = require_clean_workspace
+        self.isolate_workspace = isolate_workspace
+        self.test_commands = normalize_test_commands(
+            [list(command) for command in test_commands] if test_commands is not None else None
+        )
         self.edit_policy = EditPolicy(
             allowed_paths=tuple(allowed_paths or ()),
             max_files=max(1, max_changed_files),
@@ -72,8 +79,9 @@ class DefaultAgent:
                 self.sandbox.workspace,
                 self.patch_output_dir,
                 require_clean=self.require_clean_workspace,
+                isolate=self.isolate_workspace,
             ),
-            test_runner=TestRunner(self.sandbox),
+            test_runner=TestRunner(self.sandbox, commands=self.test_commands),
             context_provider=ContextProvider(
                 strategy=self.context_strategy,
                 line_window=self.context_line_window,

@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 import subprocess
 
 from pyfixagent.agent.default_agent import DefaultAgent
@@ -365,6 +366,84 @@ def test_initial_pytest_passes_does_not_call_model(tmp_path):
     assert result.success
     assert model.calls == 0
     assert result.iterations == []
+
+
+def test_isolated_agent_exports_patch_and_preserves_original_workspace(tmp_path):
+    workspace = init_workspace(
+        tmp_path,
+        "def divide(a, b):\n    return a / b\n",
+        pytest_test_for_divide(),
+    )
+    subprocess.run(["git", "config", "user.email", "tests@example.com"], cwd=workspace, check=True)
+    subprocess.run(["git", "config", "user.name", "Tests"], cwd=workspace, check=True)
+    subprocess.run(["git", "commit", "-m", "baseline"], cwd=workspace, check=True, capture_output=True)
+    original = (workspace / "calculator.py").read_text(encoding="utf-8")
+    model = MockModel([divide_zero_patch()])
+    agent = DefaultAgent(
+        model=model,
+        sandbox=LocalSandbox(workspace),
+        patch_output_dir=tmp_path / "patches",
+        max_iterations=1,
+        initial_mode="patch",
+        require_clean_workspace=True,
+        isolate_workspace=True,
+    )
+
+    result = agent.run("Fix tests.")
+
+    assert result.success is True
+    assert result.workspace_strategy == "temporary_git_worktree"
+    assert result.iterations[0].workspace_action == "checkpointed_success"
+    assert result.final_patch_path
+    assert Path(result.final_patch_path).exists()
+    assert "raise ValueError" in result.patch
+    assert result.final_patch_command.startswith("git apply")
+    assert (workspace / "calculator.py").read_text(encoding="utf-8") == original
+    assert subprocess.run(
+        ["git", "status", "--porcelain"],
+        cwd=workspace,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout == ""
+
+
+def test_isolated_agent_rolls_back_regression_before_retry(tmp_path):
+    workspace = init_workspace(
+        tmp_path,
+        "def add(a, b):\n    return a - b\n\n\ndef subtract(a, b):\n    return a - b\n",
+        "from calculator import add, subtract\n\n"
+        "def test_add():\n    assert add(2, 3) == 5\n\n"
+        "def test_subtract():\n    assert subtract(5, 2) == 3\n",
+    )
+    subprocess.run(["git", "config", "user.email", "tests@example.com"], cwd=workspace, check=True)
+    subprocess.run(["git", "config", "user.name", "Tests"], cwd=workspace, check=True)
+    subprocess.run(["git", "commit", "-m", "baseline"], cwd=workspace, check=True, capture_output=True)
+    regression = (
+        '[{"path":"calculator.py","old":"def add(a, b):\\n    return a - b\\n\\n\\n'
+        'def subtract(a, b):\\n    return a - b\\n","new":"def add(a, b):\\n    return a + b\\n\\n\\n'
+        'def subtract(a, b):\\n    return a + b\\n"}]'
+    )
+    repair = '[{"path":"calculator.py","old":"return a - b","new":"return a + b","start_line":2}]'
+    agent = DefaultAgent(
+        model=MockModel([regression, repair]),
+        sandbox=LocalSandbox(workspace),
+        patch_output_dir=tmp_path / "patches",
+        max_iterations=2,
+        require_clean_workspace=True,
+        isolate_workspace=True,
+    )
+
+    result = agent.run("Fix tests.")
+
+    assert result.success is True
+    assert result.iterations[0].iteration_result["failure_type"] == "regression"
+    assert result.iterations[0].workspace_action == "rolled_back_regression"
+    assert result.iterations[1].workspace_action == "checkpointed_success"
+    assert result.patch.count("+    return a + b") == 1
+    assert (workspace / "calculator.py").read_text(encoding="utf-8").startswith(
+        "def add(a, b):\n    return a - b"
+    )
 
 
 def test_clean_workspace_guard_stops_before_pytest_and_model(tmp_path):

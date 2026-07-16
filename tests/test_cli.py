@@ -66,6 +66,7 @@ def test_cli_arguments_override_config(tmp_path):
     assert runtime["max_iterations"] == 3
     assert runtime["context_line_window"] == 10
     assert runtime["require_clean_workspace"] is True
+    assert runtime["isolate_workspace"] is True
 
 
 def test_missing_config_fields_use_code_defaults(tmp_path):
@@ -89,6 +90,7 @@ def test_missing_config_fields_use_code_defaults(tmp_path):
     assert runtime["require_clean_workspace"] is True
     assert runtime["max_changed_files"] == 8
     assert runtime["max_changed_lines"] == 400
+    assert runtime["isolate_workspace"] is True
 
 
 def test_allow_dirty_disables_default_clean_workspace_guard(tmp_path):
@@ -100,6 +102,15 @@ def test_allow_dirty_disables_default_clean_workspace_guard(tmp_path):
 
     assert runtime["require_clean_workspace"] is False
     assert runtime["allowed_paths"] == ["src"]
+
+
+def test_in_place_flag_disables_temporary_worktree(tmp_path):
+    config_path = tmp_path / "minimal.yaml"
+    config_path.write_text("model: {}\n", encoding="utf-8")
+
+    runtime = resolve_runtime_config(tmp_path, parse_args(["--config", str(config_path), "--in-place"]))
+
+    assert runtime["isolate_workspace"] is False
 
 
 def test_main_returns_nonzero_when_agent_does_not_repair(monkeypatch, tmp_path):

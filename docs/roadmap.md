@@ -29,12 +29,22 @@
 - duplicate in-progress workflow runs cancelled per branch
 - package, CLI, and release documentation aligned on version 0.4.1
 
-## Next: v0.5 Reliability and Isolation
+## v0.5.0 Transactional Workspaces — Completed
 
+- temporary Git worktree execution for the default CLI and benchmark paths
 - per-iteration Git checkpoints and automatic rollback on regression
-- temporary Git worktree execution instead of in-place clean-workspace execution
-- configurable test commands with an explicit command policy
+- final patch export without modifying the selected checkout
+- configurable argv-only pytest commands with an explicit command policy
+- trace schema 1.1 workspace actions and exported patch metadata
+
+## Next: v0.5.1 Semantic Retry
+
 - semantic retry strategies driven by failure deltas rather than only format/apply failures
+- rollback and context expansion after no-progress attempts
+- retry reasons recorded independently from edit application
+
+## Later
+
 - token-based context budgeting and symbol-level dependency expansion
 - trace redaction and a static trace viewer
 

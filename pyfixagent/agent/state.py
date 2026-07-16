@@ -8,6 +8,7 @@ from pyfixagent.schemas import IterationRecord
 class AgentState:
     task: str
     workspace: Path
+    original_workspace: Path | None = None
     file_tree: str = ""
     test_output_before: str = ""
     test_output_after: str = ""
@@ -17,3 +18,5 @@ class AgentState:
     success: bool = False
     error: str | None = None
     workspace_state: dict | None = None
+    workspace_strategy: str = "in_place"
+    final_patch_path: str = ""
