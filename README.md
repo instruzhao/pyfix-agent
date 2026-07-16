@@ -53,6 +53,10 @@ Install the project in editable mode:
 
     python -m pip install -e .
 
+Install the optional scientific dependencies when running the complete benchmark protocol or the sklearn Iris demo:
+
+    python -m pip install -e ".[benchmark]"
+
 Copy `.env.example` to `.env` and set the API key required by your model provider. The default config uses an OpenAI-compatible DashScope endpoint:
 
     DASHSCOPE_API_KEY=your_api_key_here
@@ -96,7 +100,7 @@ Run each configured benchmark case five times (the v0.4 default):
 
 Benchmark results are written under `outputs/benchmarks/`. Each v0.4 run copies a read-only fixture into a temporary Git repository and removes it afterward unless `--keep-workspaces` is explicitly supplied.
 
-PyFixAgent includes a GitHub Actions workflow that runs the test suite on push and pull requests.
+PyFixAgent includes a GitHub Actions workflow that runs the supported Python test matrix on pushes to `main` and pull requests targeting `main`. Benchmark protocol validation runs once in a separate job with the optional benchmark dependencies installed.
 
 Reset generated demo state and remove temporary patches/traces:
 
@@ -167,6 +171,8 @@ See `docs/results/v0.3.1-qwen3.6-flash.md` for a sanitized one-run report across
 
 The v0.4.0 release qualification repeated all 15 cases four times. It reached 100% visible-test success and 91.7% external-holdout success across 60 runs. See `docs/results/v0.4.0-qwen3.6-flash-repeat4.md` for the sanitized report and failure analysis.
 
+v0.4.1 is a maintenance release that declares the optional scientific benchmark dependencies and separates benchmark validation from the multi-version unit-test matrix. It does not change repair behavior or invalidate the v0.4.0 real-model qualification result. See `docs/v0.4.1.md` for the release notes.
+
 ## Limitations
 
 - Not a production-grade sandbox.
@@ -190,4 +196,4 @@ Future work is listed in `docs/roadmap.md`. Items there are not implemented unle
 
 ## Project Status
 
-PyFixAgent v0.4.0 is a usable local baseline with role-oriented internal components, constrained edits, clean-workspace safety, isolated repeatable evaluation, holdout validation, and traceability. It remains intended for trusted Python projects: the local command runner is not a security sandbox, and container isolation is still future work.
+PyFixAgent v0.4.1 is a usable local baseline with role-oriented internal components, constrained edits, clean-workspace safety, isolated repeatable evaluation, holdout validation, and traceability. It remains intended for trusted Python projects: the local command runner is not a security sandbox, and container isolation is still future work.
