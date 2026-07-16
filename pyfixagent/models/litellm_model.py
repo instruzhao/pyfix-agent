@@ -15,16 +15,14 @@ class LiteLLMModel(BaseModel):
     max_tokens: int = 2000
     timeout_seconds: int = 60
     extra_body: dict | None = None
+    system_prompt_as_user: bool = False
     last_usage: dict[str, int] = field(default_factory=dict, init=False)
 
     def generate_patch(self, system_prompt: str, user_prompt: str) -> str:
         try:
             response: Any = completion(
                 model=self.model_name,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
+                messages=self._messages(system_prompt, user_prompt),
                 temperature=self.temperature,
                 max_tokens=self.max_tokens,
                 timeout=self.timeout_seconds,
@@ -45,6 +43,19 @@ class LiteLLMModel(BaseModel):
             return content
         except Exception as exc:
             raise RuntimeError(f"LiteLLM patch generation failed: {exc}") from exc
+
+    def _messages(self, system_prompt: str, user_prompt: str) -> list[dict[str, str]]:
+        if self.system_prompt_as_user:
+            return [
+                {
+                    "role": "user",
+                    "content": f"Agent output contract:\n{system_prompt}\n\nRepair request:\n{user_prompt}",
+                }
+            ]
+        return [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
 
 
 def _usage_value(usage: Any, name: str):

@@ -42,5 +42,41 @@ class RetryPolicy:
             self.consecutive_replacement_apply_failures = 0
         return RetryDecision(True, self.mode, f"retry_after_{result.failure_stage or 'apply'}")
 
-    def after_test_failure(self) -> RetryDecision:
-        return RetryDecision(True, self.mode, "retry_after_test_failure")
+    def after_test_failure(self, result: dict | None = None) -> RetryDecision:
+        failure_type = str((result or {}).get("failure_type") or "unknown")
+        if failure_type == "regression":
+            return RetryDecision(
+                True,
+                self.mode,
+                "rollback_regression_and_expand_context",
+                rollback=True,
+                expand_context=True,
+            )
+        if failure_type == "no_progress":
+            return RetryDecision(
+                True,
+                self.mode,
+                "rollback_no_progress_and_expand_context",
+                rollback=True,
+                expand_context=True,
+            )
+        if failure_type == "timeout":
+            return RetryDecision(
+                True,
+                self.mode,
+                "rollback_after_test_timeout",
+                rollback=True,
+            )
+        if failure_type == "incomplete_fix":
+            return RetryDecision(
+                True,
+                self.mode,
+                "checkpoint_partial_progress",
+                checkpoint=True,
+            )
+        return RetryDecision(
+            True,
+            self.mode,
+            "checkpoint_unclassified_test_failure",
+            checkpoint=True,
+        )

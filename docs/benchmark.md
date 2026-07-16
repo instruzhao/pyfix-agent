@@ -32,6 +32,8 @@ v0.4 hardens fixture handling further. Fixture copies exclude Python bytecode an
 
 The v0.4.0 four-repetition release report is available at `docs/results/v0.4.0-qwen3.6-flash-repeat4.md`.
 
+The v0.5.1 `qwen3.6-max-preview` four-repetition release report is available at `docs/results/v0.5.1-qwen3.6-max-preview-repeat4.md`. It qualifies the transactional and semantic-retry workflow while preserving the observed external-holdout failures.
+
 This document records a lightweight v0.2.2 comparison of PyFixAgent context strategies. It is meant to explain prompt/context behavior on the included demo workspaces, not to claim broad code repair ability.
 
 ## Benchmark Goal

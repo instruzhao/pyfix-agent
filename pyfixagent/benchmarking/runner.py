@@ -27,6 +27,7 @@ def run_benchmark(
     sandbox_timeout: int = 30,
     context_line_window: int = 25,
     context_max_files: int = 6,
+    context_max_expansion_level: int = 2,
     max_changed_files: int = 8,
     max_changed_lines: int = 400,
     test_commands: tuple[tuple[str, ...], ...] | None = None,
@@ -57,6 +58,7 @@ def run_benchmark(
                         context_strategy=strategy,
                         context_line_window=context_line_window,
                         context_max_files=context_max_files,
+                        context_max_expansion_level=context_max_expansion_level,
                         require_clean_workspace=True,
                         allowed_paths=case.allowed_paths,
                         max_changed_files=max_changed_files,
@@ -185,12 +187,14 @@ def _apply_exported_patch(workspace: Path, patch: str) -> None:
         completed = subprocess.run(
             ["git", *args],
             cwd=workspace,
-            input=patch,
+            input=patch.encode("utf-8"),
             timeout=30,
             capture_output=True,
-            text=True,
             check=False,
         )
         if completed.returncode != 0:
-            message = completed.stderr.strip() or completed.stdout.strip()
+            message = (
+                completed.stderr.decode("utf-8", errors="replace").strip()
+                or completed.stdout.decode("utf-8", errors="replace").strip()
+            )
             raise RuntimeError(f"exported patch could not be materialized: {message}")

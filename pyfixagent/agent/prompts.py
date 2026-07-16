@@ -55,10 +55,16 @@ Check normal and boundary inputs, equivalent valid representations, and already-
 For normalization code, prefer behavior that is stable when input is already normalized.
 Silently challenge the proposed logic with input structure that is absent, repeated, or already present.
 Pay special attention to split, partition, prefix, suffix, and stripping operations; do not output this analysis.
+For transformation APIs, derive one canonical output representation before editing.
+Ensure separators already present in the input and separators introduced by the transformation collapse consistently.
+Treat optional marker characters as accepted with or without the marker, but emit the marker exactly once.
+Check the idempotence law f(f(x)) == f(x) whenever input and output share the same domain.
 Do not hard-code outputs for individual test examples.
 You may be given selected relevant snippets instead of the full project.
 Do not assume unrelated files unless necessary.
-If the provided context is insufficient, make the smallest robust fix based on the failure and selected code."""
+If the provided context is insufficient, make the smallest robust fix based on the failure and selected code.
+Before returning, silently test the proposed transformation with an absent separator, repeated separators,
+and an already-normalized optional marker. Revise the edit if the output is not canonical and idempotent."""
 
 REPLACEMENT_PROMPT = """Task:
 {task}
@@ -111,10 +117,16 @@ Check normal and boundary inputs, equivalent valid representations, and already-
 For normalization code, prefer behavior that is stable when input is already normalized.
 Silently challenge the proposed logic with input structure that is absent, repeated, or already present.
 Pay special attention to split, partition, prefix, suffix, and stripping operations; do not output this analysis.
+For transformation APIs, derive one canonical output representation before editing.
+Ensure separators already present in the input and separators introduced by the transformation collapse consistently.
+Treat optional marker characters as accepted with or without the marker, but emit the marker exactly once.
+Check the idempotence law f(f(x)) == f(x) whenever input and output share the same domain.
 Do not hard-code outputs for individual test examples.
 You may be given selected relevant snippets instead of the full project.
 Do not assume unrelated files unless necessary.
 If the provided context is insufficient, make the smallest robust fix based on the failure and selected code.
+Before returning, silently test the proposed transformation with an absent separator, repeated separators,
+and an already-normalized optional marker. Revise the edit if the output is not canonical and idempotent.
 
 Example JSON array:
 [

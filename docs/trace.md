@@ -72,6 +72,8 @@ The result also includes a short reason so readers can quickly tell whether the 
 
 `workspace_action` records checkpoint and rollback decisions, such as `checkpointed_partial`, `checkpointed_success`, or `rolled_back_regression`. `retry_reason` records the policy decision separately from edit application.
 
+`context_expansion_level` records the plan used for an iteration. The corresponding `context` metadata includes `base_strategy`, `expansion_level`, `effective_line_window`, and `effective_max_files`, so retry-driven context growth can be audited without reconstructing configuration state.
+
 ## Model Output
 
 `model_output` records how the model response was interpreted.

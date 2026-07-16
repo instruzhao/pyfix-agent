@@ -6,6 +6,7 @@ from pyfixagent.agent.prompts import SYSTEM_PROMPT
 from pyfixagent.agent.state import AgentState
 from pyfixagent.context.pytest_summary import parse_pytest_summary, pytest_summary_to_dict
 from pyfixagent.context.provider import ContextProvider
+from pyfixagent.context.policy import ContextExpansionPolicy
 from pyfixagent.core.contracts import EditProposal, RepairRequest
 from pyfixagent.execution.test_runner import TestRunner
 from pyfixagent.execution.workspace_session import WorkspaceSession
@@ -27,6 +28,7 @@ class RepairEngine:
         workspace_session: WorkspaceSession,
         test_runner: TestRunner,
         context_provider: ContextProvider,
+        context_policy: ContextExpansionPolicy,
         prompt_builder: PromptBuilder,
         model_client: ModelClient,
         backends: dict[str, EditBackend],
@@ -36,6 +38,7 @@ class RepairEngine:
         self.workspace_session = workspace_session
         self.test_runner = test_runner
         self.context_provider = context_provider
+        self.context_policy = context_policy
         self.prompt_builder = prompt_builder
         self.model_client = model_client
         self.backends = backends
@@ -75,7 +78,17 @@ class RepairEngine:
                 patch_path = self.workspace_session.patch_path(iteration)
                 mode = self.retry_policy.mode
                 print(f"[agent] iteration {iteration}/{request.max_iterations}: selecting context...")
-                context = self.context_provider.build(state.workspace, current_test_output)
+                context_plan = self.context_policy.plan(
+                    strategy=self.context_provider.strategy,
+                    line_window=self.context_provider.line_window,
+                    max_files=self.context_provider.max_files,
+                    allow_full=self.context_provider.fallback_to_full,
+                )
+                context = self.context_provider.build(
+                    state.workspace,
+                    current_test_output,
+                    plan=context_plan,
+                )
                 summary_before = pytest_summary_to_dict(parse_pytest_summary(current_test_output))
                 initial_output = (
                     state.test_output_before
@@ -100,20 +113,21 @@ class RepairEngine:
                     raw_output, model_call = self.model_client.generate(SYSTEM_PROMPT, prompt)
                 except ModelGenerationError as exc:
                     state.error = str(exc)
-                    state.iterations.append(
-                        self.evaluator.model_error_record(
-                            iteration=iteration,
-                            prompt=prompt,
-                            patch_path=patch_path,
-                            started_at=started_at,
-                            mode=mode,
-                            error=state.error,
-                            context=context.metadata,
-                            test_summary_before=summary_before,
-                            model_call=exc.metadata,
-                        )
+                    record = self.evaluator.model_error_record(
+                        iteration=iteration,
+                        prompt=prompt,
+                        patch_path=patch_path,
+                        started_at=started_at,
+                        mode=mode,
+                        error=state.error,
+                        context=context.metadata,
+                        test_summary_before=summary_before,
+                        model_call=exc.metadata,
                     )
+                    record.context_expansion_level = context_plan.level
                     decision = self.retry_policy.after_model_error()
+                    record.retry_reason = decision.reason
+                    state.iterations.append(record)
                     if not decision.continue_repair:
                         return self._to_result(state, patch_applied)
                     feedback = self.prompt_builder.replacement_failure("", state.error)
@@ -134,18 +148,20 @@ class RepairEngine:
                 if not backend_result.success:
                     state.error = backend_result.error
                     record = self.evaluator.apply_record(
-                            iteration=iteration,
-                            proposal=proposal,
-                            result=backend_result,
-                            started_at=started_at,
-                            context=context.metadata,
-                            test_summary_before=summary_before,
-                        )
+                        iteration=iteration,
+                        proposal=proposal,
+                        result=backend_result,
+                        started_at=started_at,
+                        context=context.metadata,
+                        test_summary_before=summary_before,
+                    )
                     if backend_result.applied_to_workspace and state.workspace_strategy == "temporary_git_worktree":
                         self.workspace_session.rollback()
                         record.workspace_action = "rolled_back_after_apply_failure"
-                    state.iterations.append(record)
                     decision = self.retry_policy.after_apply(backend_result)
+                    record.context_expansion_level = context_plan.level
+                    record.retry_reason = decision.reason
+                    state.iterations.append(record)
                     feedback = (
                         self.prompt_builder.mode_switch_failure(backend_result, decision.next_mode)
                         if decision.next_mode != mode
@@ -170,18 +186,19 @@ class RepairEngine:
                 state.success = after.success
                 state.error = None if state.success else f"tests still failed after applying {mode}"
                 record = self.evaluator.apply_record(
-                        iteration=iteration,
-                        proposal=proposal,
-                        result=backend_result,
-                        started_at=started_at,
-                        context=context.metadata,
-                        test_summary_before=summary_before,
-                        pytest_exit_code=after.exit_code,
-                        pytest_output=after.output,
-                        success=state.success,
-                    )
+                    iteration=iteration,
+                    proposal=proposal,
+                    result=backend_result,
+                    started_at=started_at,
+                    context=context.metadata,
+                    test_summary_before=summary_before,
+                    pytest_exit_code=after.exit_code,
+                    pytest_output=after.output,
+                    success=state.success,
+                )
                 if state.success:
                     self.workspace_session.checkpoint(iteration)
+                    record.context_expansion_level = context_plan.level
                     record.workspace_action = (
                         "checkpointed_success"
                         if state.workspace_strategy == "temporary_git_worktree"
@@ -190,10 +207,12 @@ class RepairEngine:
                     state.iterations.append(record)
                     return self._to_result(state, patch_applied)
 
-                failure_type = (record.iteration_result or {}).get("failure_type")
-                if failure_type == "regression" and state.workspace_strategy == "temporary_git_worktree":
+                failure_type = str((record.iteration_result or {}).get("failure_type") or "unknown")
+                decision = self.retry_policy.after_test_failure(record.iteration_result)
+                rolled_back = decision.rollback and state.workspace_strategy == "temporary_git_worktree"
+                if rolled_back:
                     self.workspace_session.rollback()
-                    record.workspace_action = "rolled_back_regression"
+                    record.workspace_action = f"rolled_back_{failure_type}"
                 else:
                     self.workspace_session.checkpoint(iteration)
                     record.workspace_action = (
@@ -202,13 +221,18 @@ class RepairEngine:
                         else "kept_in_place"
                     )
                     current_test_output = after.output
-                state.iterations.append(record)
-                decision = self.retry_policy.after_test_failure()
+                if decision.expand_context:
+                    self.context_policy.expand(decision.reason)
+                record.context_expansion_level = context_plan.level
                 record.retry_reason = decision.reason
-                feedback = (
-                    self.prompt_builder.replacement_test_failure(after.output)
-                    if mode == "replacement"
-                    else self.prompt_builder.patch_test_failure(after.output)
+                state.iterations.append(record)
+                feedback = self.prompt_builder.semantic_test_failure(
+                    mode=mode,
+                    failure_type=failure_type,
+                    delta=record.failure_delta or {},
+                    test_output=after.output,
+                    rolled_back=rolled_back,
+                    context_expansion_level=self.context_policy.level,
                 )
                 print(
                     f"[agent] iteration {iteration}/{request.max_iterations}: "

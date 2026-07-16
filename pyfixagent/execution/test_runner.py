@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from pathlib import Path
+import tempfile
 
 from pyfixagent.execution.test_policy import TestCommandPolicy
 from pyfixagent.sandbox.local_sandbox import CommandResult, LocalSandbox
@@ -36,11 +37,19 @@ class TestRunner:
         if workspace is not None and Path(workspace).resolve() != sandbox.workspace.resolve():
             sandbox = LocalSandbox(Path(workspace), timeout_seconds=sandbox.timeout_seconds)
         results: list[CommandResult] = []
-        for command in self.commands:
-            result = sandbox.run(list(command))
-            results.append(result)
-            if result.exit_code != 0:
-                break
+        with tempfile.TemporaryDirectory(
+            prefix="pyfixagent-pytest-",
+            ignore_cleanup_errors=True,
+        ) as temporary_root:
+            for index, command in enumerate(self.commands, start=1):
+                effective_command = self._with_isolated_basetemp(
+                    command,
+                    Path(temporary_root) / f"command-{index}",
+                )
+                result = sandbox.run(list(effective_command))
+                results.append(result)
+                if result.exit_code != 0:
+                    break
         result = results[-1]
         return TestExecution(
             exit_code=result.exit_code,
@@ -62,3 +71,9 @@ class TestRunner:
             result.stderr,
         ]
         return "\n".join(parts)
+
+    @staticmethod
+    def _with_isolated_basetemp(command: tuple[str, ...], basetemp: Path) -> tuple[str, ...]:
+        if any(part == "--basetemp" or part.startswith("--basetemp=") for part in command):
+            return command
+        return (*command, f"--basetemp={basetemp}")

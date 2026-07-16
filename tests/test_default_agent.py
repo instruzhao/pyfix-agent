@@ -446,6 +446,48 @@ def test_isolated_agent_rolls_back_regression_before_retry(tmp_path):
     )
 
 
+def test_isolated_agent_rolls_back_no_progress_and_expands_context(tmp_path):
+    workspace = init_workspace(
+        tmp_path,
+        "def add(a, b):\n    return a - b\n",
+        "from calculator import add\n\ndef test_add():\n    assert add(2, 3) == 5\n",
+    )
+    subprocess.run(["git", "config", "user.email", "tests@example.com"], cwd=workspace, check=True)
+    subprocess.run(["git", "config", "user.name", "Tests"], cwd=workspace, check=True)
+    subprocess.run(["git", "commit", "-m", "baseline"], cwd=workspace, check=True, capture_output=True)
+    no_progress = '[{"path":"calculator.py","old":"return a - b","new":"return a * b"}]'
+    repair = '[{"path":"calculator.py","old":"return a - b","new":"return a + b"}]'
+    model = MockModel([no_progress, repair])
+    agent = DefaultAgent(
+        model=model,
+        sandbox=LocalSandbox(workspace),
+        patch_output_dir=tmp_path / "patches",
+        max_iterations=2,
+        require_clean_workspace=True,
+        isolate_workspace=True,
+        context_line_window=10,
+        context_max_files=2,
+    )
+
+    result = agent.run("Fix tests.")
+
+    assert result.success is True
+    first, second = result.iterations
+    assert first.iteration_result["failure_type"] == "no_progress"
+    assert first.workspace_action == "rolled_back_no_progress"
+    assert first.retry_reason == "rollback_no_progress_and_expand_context"
+    assert first.context_expansion_level == 0
+    assert second.context_expansion_level == 1
+    assert second.context["expansion_level"] == 1
+    assert second.context["effective_line_window"] == 20
+    assert second.context["effective_max_files"] == 4
+    assert "previous edit was rolled back" in model.prompts[1].lower()
+    assert result.patch.count("+    return a + b") == 1
+    assert (workspace / "calculator.py").read_text(encoding="utf-8") == (
+        "def add(a, b):\n    return a - b\n"
+    )
+
+
 def test_clean_workspace_guard_stops_before_pytest_and_model(tmp_path):
     workspace = init_workspace(
         tmp_path,

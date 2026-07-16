@@ -64,3 +64,6 @@ class RetryDecision:
     continue_repair: bool
     next_mode: RepairMode
     reason: str
+    rollback: bool = False
+    checkpoint: bool = False
+    expand_context: bool = False

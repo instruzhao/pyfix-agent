@@ -48,4 +48,9 @@ def test_test_runner_stops_at_first_failing_configured_command(tmp_path):
 
     assert result.success is False
     assert len(result.command_results) == 1
-    assert result.command_results[0].command[-1] == "test_one.py"
+    assert "test_one.py" in result.command_results[0].command
+    basetemp = next(
+        part for part in result.command_results[0].command if part.startswith("--basetemp=")
+    )
+    assert str(tmp_path) not in basetemp
+    assert not (tmp_path / ".pytest_tmp").exists()

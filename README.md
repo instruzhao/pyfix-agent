@@ -52,6 +52,8 @@ The repository includes two resettable demo workspaces:
 - Temporary Git worktree execution for the default CLI workflow, leaving the selected repository unchanged.
 - Per-iteration checkpoints with automatic rollback when an edit introduces new test failures.
 - Configurable argv-only pytest commands protected by an explicit command policy.
+- Failure-delta retry decisions that distinguish partial progress, no progress, regressions, and timeouts.
+- Bounded context expansion after rolled-back semantic failures.
 
 ## Quick Start
 
@@ -102,11 +104,11 @@ Validate all benchmark fixtures and holdouts without calling a model:
 
     pyfixagent-benchmark --validate
 
-Run each configured benchmark case five times (the v0.4 default):
+Run each configured benchmark case five times (the CLI default):
 
     pyfixagent-benchmark
 
-Benchmark results are written under `outputs/benchmarks/`. Each v0.4 run copies a read-only fixture into a temporary Git repository and removes it afterward unless `--keep-workspaces` is explicitly supplied.
+Benchmark results are written under `outputs/benchmarks/`. Each run copies a read-only fixture into a disposable repository, performs repair in an inner temporary Git worktree, exports the aggregate patch, and removes the repair worktree afterward. The materialized benchmark workspace is also removed unless `--keep-workspaces` is explicitly supplied.
 
 PyFixAgent includes a GitHub Actions workflow that runs the supported Python test matrix on pushes to `main` and pull requests targeting `main`. Benchmark protocol validation runs once in a separate job with the optional benchmark dependencies installed.
 
@@ -193,6 +195,8 @@ v0.4.1 is a maintenance release that declares the optional scientific benchmark 
 
 v0.5.0 moves the default CLI repair into a temporary Git worktree, adds checkpoints and regression rollback, exports a reviewable final patch, and introduces policy-checked configurable pytest commands. See `docs/v0.5.0.md` for the release notes.
 
+v0.5.1 moves semantic retry decisions into `RetryPolicy`: partial progress is checkpointed, while no-progress attempts and regressions are rolled back before retrying with bounded expanded context. Its `qwen3.6-max-preview` release qualification reached 100% visible-test success and 86.7% external-holdout success across 60 runs. See `docs/v0.5.1.md` for the release notes and `docs/results/v0.5.1-qwen3.6-max-preview-repeat4.md` for the sanitized report.
+
 ## Limitations
 
 - Not a production-grade sandbox.
@@ -216,4 +220,4 @@ Future work is listed in `docs/roadmap.md`. Items there are not implemented unle
 
 ## Project Status
 
-PyFixAgent v0.5.0 is a transactional local repair baseline with role-oriented internals, constrained edits, temporary-worktree execution, regression rollback, isolated repeatable evaluation, holdout validation, and traceability. It remains intended for trusted Python projects: a Git worktree protects the selected checkout from repair mutations but is not a security sandbox, and container isolation is still future work.
+PyFixAgent v0.5.1 is a transactional local repair baseline with role-oriented internals, constrained edits, temporary-worktree execution, semantic rollback/retry, bounded context expansion, isolated repeatable evaluation, holdout validation, and traceability. It remains intended for trusted Python projects: a Git worktree protects the selected checkout from repair mutations but is not a security sandbox, and container isolation is still future work.

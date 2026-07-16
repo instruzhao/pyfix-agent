@@ -37,15 +37,26 @@
 - configurable argv-only pytest commands with an explicit command policy
 - trace schema 1.1 workspace actions and exported patch metadata
 
-## Next: v0.5.1 Semantic Retry
+## v0.5.1 Semantic Retry — Completed
 
 - semantic retry strategies driven by failure deltas rather than only format/apply failures
 - rollback and context expansion after no-progress attempts
 - retry reasons recorded independently from edit application
+- partial progress checkpointed for incremental repair
+- bounded traceback expansion followed by full context at the configured maximum level
+- `qwen3.6-max-preview` real-model qualification across 15 cases and four repetitions
+
+## Next: v0.6 Semantic Acceptance and Repository Understanding
+
+- a holdout-blind semantic acceptance stage after visible tests pass, separate from edit/apply retry
+- code-derived contract risks and counterexample categories instead of case-specific prompt hints
+- token-based context budgeting and symbol-level dependency expansion
+- static import and caller relationships without a vector database
+- larger, more varied hint-free benchmark cases
+- release comparison that reports semantic quality separately from model cost and visible-test success
 
 ## Later
 
-- token-based context budgeting and symbol-level dependency expansion
 - trace redaction and a static trace viewer
 
 ## Deferred

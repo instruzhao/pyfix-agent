@@ -5,7 +5,12 @@ import os
 import pytest
 
 from pyfixagent.agent.default_agent import DefaultAgent
-from pyfixagent.main import load_dotenv_file, save_trace
+from pyfixagent.main import (
+    build_model_extra_body,
+    build_system_prompt_as_user,
+    load_dotenv_file,
+    save_trace,
+)
 from pyfixagent.models.litellm_model import LiteLLMModel
 from pyfixagent.sandbox.local_sandbox import LocalSandbox
 from pyfixagent.utils.config import load_config
@@ -53,7 +58,8 @@ def require_real_model_config():
         temperature=float(model_config.get("temperature", 0.0)),
         max_tokens=int(model_config.get("max_tokens", 2000)),
         timeout_seconds=int(model_config.get("timeout_seconds", 60)),
-        extra_body={"enable_thinking": bool(model_config.get("enable_thinking", False))},
+        extra_body=build_model_extra_body(model_config),
+        system_prompt_as_user=build_system_prompt_as_user(model_config),
     )
 
 

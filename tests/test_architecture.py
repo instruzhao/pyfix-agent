@@ -3,10 +3,12 @@ import subprocess
 import pytest
 
 from pyfixagent.agent.default_agent import DefaultAgent
+from pyfixagent.context.policy import ContextExpansionPolicy
 from pyfixagent.benchmark import run_benchmark as facade_run_benchmark
 from pyfixagent.benchmarking.runner import run_benchmark as modular_run_benchmark
 from pyfixagent.core.contracts import ApplyResult
 from pyfixagent.models.base import BaseModel
+from pyfixagent.models.litellm_model import LiteLLMModel
 from pyfixagent.models.mock_model import MockModel
 from pyfixagent.repair.backends.patch import PatchBackend
 from pyfixagent.repair.backends.replacement import ReplacementBackend
@@ -115,6 +117,46 @@ def test_retry_policy_switches_immediately_when_replacement_loses_source_anchor(
     assert decision.reason == "switch_to_patch_after_lost_replacement_anchor"
 
 
+def test_retry_policy_maps_failure_delta_outcomes_to_workspace_actions():
+    policy = RetryPolicy("replacement")
+
+    no_progress = policy.after_test_failure({"failure_type": "no_progress"})
+    partial = policy.after_test_failure({"failure_type": "incomplete_fix"})
+    regression = policy.after_test_failure({"failure_type": "regression"})
+
+    assert no_progress.rollback is True
+    assert no_progress.expand_context is True
+    assert partial.checkpoint is True
+    assert partial.rollback is False
+    assert regression.rollback is True
+    assert regression.reason == "rollback_regression_and_expand_context"
+
+
+def test_context_expansion_policy_widens_then_uses_full_context():
+    policy = ContextExpansionPolicy()
+
+    initial = policy.plan(strategy="traceback", line_window=20, max_files=3, allow_full=True)
+    policy.expand("no_progress")
+    widened = policy.plan(strategy="traceback", line_window=20, max_files=3, allow_full=True)
+    policy.expand("no_progress")
+    full = policy.plan(strategy="traceback", line_window=20, max_files=3, allow_full=True)
+
+    assert (initial.strategy, initial.line_window, initial.max_files, initial.level) == (
+        "traceback",
+        20,
+        3,
+        0,
+    )
+    assert (widened.strategy, widened.line_window, widened.max_files, widened.level) == (
+        "traceback",
+        40,
+        6,
+        1,
+    )
+    assert full.strategy == "full"
+    assert full.level == 2
+
+
 class FailingModel(BaseModel):
     def generate_patch(self, system_prompt: str, user_prompt: str) -> str:
         raise RuntimeError("provider unavailable")
@@ -128,6 +170,19 @@ def test_model_client_normalizes_model_errors_with_metadata():
 
     assert raised.value.metadata["duration_seconds"] is not None
     assert raised.value.metadata["model"] == "FailingModel"
+
+
+def test_litellm_model_can_merge_system_contract_into_user_message():
+    model = LiteLLMModel("openai/example", system_prompt_as_user=True)
+
+    messages = model._messages("system contract", "repair prompt")
+
+    assert messages == [
+        {
+            "role": "user",
+            "content": "Agent output contract:\nsystem contract\n\nRepair request:\nrepair prompt",
+        }
+    ]
 
 
 def test_default_agent_is_a_component_assembly_facade(tmp_path):
