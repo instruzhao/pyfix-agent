@@ -6,12 +6,13 @@ It is a prototype for demonstrating the repair loop and traceability. It is not 
 
 ## Overview
 
-The default v0.6 workflow is transactional and review-gated:
+The default v0.6.1 workflow is transactional, repository-aware, and review-gated:
 
     create a temporary Git worktree
     run the configured pytest command
     collect failure output
     select traceback-driven context
+    expand direct static dependencies under a token budget
     prompt the model through LiteLLM
     apply replacement or patch edits
     rerun pytest
@@ -56,6 +57,8 @@ The repository includes two resettable demo workspaces:
 - Failure-delta retry decisions that distinguish partial progress, no progress, regressions, and timeouts.
 - Bounded context expansion after rolled-back semantic failures.
 - Independent semantic review with strict JSON, evidence validation, deterministic structural risk cues, and bounded revisions.
+- Execution-free Python repository indexing with content-addressed cache invalidation.
+- Bounded import/importer graph expansion and symbol-range context selection.
 
 ## Quick Start
 
@@ -142,13 +145,15 @@ Only direct `pytest` or `python -m pytest` commands are accepted.
 
 ## Context Strategy
 
-The default context strategy is `traceback`. It selects files from:
+The default context strategy is `traceback`. It seeds context from:
 
 - failing test files
 - traceback source files
 - modules directly imported by failing tests
 
-This is intentionally lightweight. It is not a full import graph, repository index, vector database, or RAG system. For very small workspaces, `--context-strategy full` can include all Python files instead.
+v0.6.1 then uses a static AST index to follow direct imports and reverse importers up to the configured depth. Related symbols are preferred when their names are referenced by the seed evidence, and selected source is clipped to `context.max_selected_tokens`. The index is content-addressed, cached outside the repair workspace, and rebuilt after a source edit changes its fingerprint.
+
+This remains intentionally bounded: it does not execute imports, resolve dynamic dispatch, index non-Python languages, use embeddings, or provide RAG. For very small workspaces, `--context-strategy full` can include all Python files while still honoring the configured source-context budget.
 
 ## Structured Trace
 
@@ -201,15 +206,16 @@ v0.5.1 moves semantic retry decisions into `RetryPolicy`: partial progress is ch
 
 v0.6.0 separates visible-test success from final semantic acceptance. An independent reviewer can accept a candidate, request a bounded evidence-driven revision, or return `needs_review`; external holdouts remain inaccessible to the agent. Its one-run `qwen3.6-max-preview` qualification passed all 15 visible suites and all 15 external holdouts with zero false accepts or false rejects. See `docs/v0.6.0.md` for the release notes and `docs/results/v0.6.0-qwen3.6-max-preview.md` for the sanitized report.
 
+v0.6.1 adds an execution-free Python repository index, direct import/importer expansion, symbol-range selection, content-addressed cache invalidation, and deterministic token budgeting shared by repair and review context. Its one-run `qwen3.6-max-preview` qualification again passed all 15 visible suites and external holdouts. See `docs/v0.6.1.md` for the release notes and `docs/results/v0.6.1-qwen3.6-max-preview.md` for the sanitized report.
+
 ## Limitations
 
 - Not a production-grade sandbox.
 - Designed for small local Python projects.
 - pytest is the main validation signal.
-- Context selection is lightweight.
-- No full repository indexing.
+- Repository understanding is static, Python-only, and bounded.
 - No vector database or RAG.
-- No complete dependency graph.
+- No dynamic call graph or cross-language dependency graph.
 - No GitHub PR or issue integration.
 - LLM output reliability is not guaranteed.
 - Traces can contain sensitive source code and logs.
@@ -224,4 +230,4 @@ Future work is listed in `docs/roadmap.md`. Items there are not implemented unle
 
 ## Project Status
 
-PyFixAgent v0.6.0 is a transactional local repair baseline with role-oriented internals, constrained edits, temporary-worktree execution, semantic rollback/retry, independent candidate review, bounded semantic revisions, isolated repeatable evaluation, holdout validation, and traceability. It remains intended for trusted Python projects: a Git worktree protects the selected checkout from repair mutations but is not a security sandbox, and container isolation is still future work.
+PyFixAgent v0.6.1 is a transactional local repair baseline with role-oriented internals, constrained edits, temporary-worktree execution, semantic rollback/retry, bounded static repository context, independent candidate review, isolated repeatable evaluation, holdout validation, and traceability. It remains intended for trusted Python projects: a Git worktree protects the selected checkout from repair mutations but is not a security sandbox, and container isolation is still future work.

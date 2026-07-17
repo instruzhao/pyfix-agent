@@ -32,11 +32,12 @@ def render_selected_context(context: SelectedContext) -> str:
 def context_trace_metadata(context: SelectedContext) -> dict:
     selected_paths = [snippet.path for snippet in context.snippets]
     selected_context_chars = sum(len(snippet.content) for snippet in context.snippets)
-    return {
+    dependency_analysis = bool(context.repository_metadata)
+    metadata = {
         "strategy": context.strategy,
         "fallback_used": context.fallback_used,
         "prompt_chars": context.prompt_chars,
-        "dependency_analysis": False,
+        "dependency_analysis": dependency_analysis,
         "stats": {
             "selected_file_count": len(set(selected_paths)),
             "selected_snippet_count": len(context.snippets),
@@ -50,9 +51,23 @@ def context_trace_metadata(context: SelectedContext) -> dict:
                 "path": snippet.path,
                 "reason": snippet.reason,
                 "selection_rule": snippet.reason,
-                "dependency_analysis": False,
+                "dependency_analysis": dependency_analysis,
                 "line_range": [snippet.start_line, snippet.end_line],
+                **({"score": snippet.score} if snippet.score is not None else {}),
+                **(
+                    {"graph_distance": snippet.graph_distance}
+                    if snippet.graph_distance is not None
+                    else {}
+                ),
+                **({"symbol": snippet.symbol} if snippet.symbol else {}),
             }
             for snippet in context.snippets
         ],
     }
+    if context.repository_metadata:
+        metadata["repository"] = context.repository_metadata
+        metadata["stats"]["estimated_selected_tokens"] = context.repository_metadata.get(
+            "estimated_selected_tokens"
+        )
+        metadata["stats"]["budget_truncated"] = context.repository_metadata.get("budget_truncated")
+    return metadata

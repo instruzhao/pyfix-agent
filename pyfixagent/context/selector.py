@@ -14,6 +14,9 @@ class SelectedSnippet:
     start_line: int
     end_line: int
     content: str
+    score: float | None = None
+    graph_distance: int | None = None
+    symbol: str | None = None
 
 
 @dataclass
@@ -22,6 +25,7 @@ class SelectedContext:
     snippets: list[SelectedSnippet]
     fallback_used: bool
     prompt_chars: int | None = None
+    repository_metadata: dict | None = None
 
 
 def select_context(

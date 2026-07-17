@@ -2,6 +2,7 @@ from pathlib import Path
 
 from pyfixagent.context.builder import context_trace_metadata, render_selected_context
 from pyfixagent.context.policy import ContextPlan
+from pyfixagent.context.repository import RepositoryContextExpander
 from pyfixagent.context.selector import select_context
 from pyfixagent.context.traceback_parser import parse_pytest_failure_output
 from pyfixagent.core.contracts import ContextBundle
@@ -18,6 +19,7 @@ class ContextProvider:
         max_files: int = 6,
         fallback_to_full: bool = True,
         include_tests: bool = True,
+        repository_expander: RepositoryContextExpander | None = None,
     ):
         if strategy not in {"full", "traceback"}:
             raise ValueError("context_strategy must be 'full' or 'traceback'")
@@ -26,6 +28,7 @@ class ContextProvider:
         self.max_files = max(1, max_files)
         self.fallback_to_full = fallback_to_full
         self.include_tests = include_tests
+        self.repository_expander = repository_expander
 
     def build(
         self,
@@ -49,9 +52,11 @@ class ContextProvider:
             fallback_to_full_context=self.fallback_to_full,
             include_tests=self.include_tests,
         )
+        if self.repository_expander is not None:
+            selected = self.repository_expander.expand(workspace, selected, pytest_output)
         rendered = (
             read_python_files(workspace)
-            if effective.strategy == "full"
+            if effective.strategy == "full" and self.repository_expander is None
             else render_selected_context(selected)
         )
         selected.prompt_chars = len(rendered)

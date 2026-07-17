@@ -33,9 +33,19 @@ context:
   strategy: traceback
   line_window: 25
   max_files: 6
+  max_selected_tokens: 12000
   max_expansion_level: 2
   fallback_to_full_context: true
   include_tests: true
+
+repository:
+  enabled: true
+  cache_dir: outputs/index
+  max_files: 2000
+  max_file_bytes: 1000000
+  max_graph_depth: 2
+  max_related_files: 6
+  max_snippet_lines: 200
 
 semantic_review:
   enabled: true

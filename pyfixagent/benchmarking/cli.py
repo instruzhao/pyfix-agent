@@ -14,6 +14,7 @@ from pyfixagent.main import (
     build_model_extra_body,
     build_system_prompt_as_user,
     load_dotenv_file,
+    _as_bool,
 )
 from pyfixagent.execution.test_policy import normalize_test_commands
 from pyfixagent.models.base import BaseModel
@@ -62,6 +63,8 @@ def main(argv: list[str] | None = None) -> int:
     config = load_config(resolve(project_root, args.config))
     model_config = config.get("model", {})
     review_config = config.get("semantic_review", {})
+    repository_config = config.get("repository", {})
+    context_config = config.get("context", {})
 
     def model_factory() -> BaseModel:
         api_key_env = model_config.get("api_key_env")
@@ -86,18 +89,25 @@ def main(argv: list[str] | None = None) -> int:
         strategy_override=tuple(args.strategies or ()),
         keep_workspaces=args.keep_workspaces,
         sandbox_timeout=int(config.get("sandbox", {}).get("timeout_seconds", 30)),
-        context_line_window=int(config.get("context", {}).get("line_window", 25)),
-        context_max_files=int(config.get("context", {}).get("max_files", 6)),
-        context_max_expansion_level=int(config.get("context", {}).get("max_expansion_level", 2)),
+        context_line_window=int(context_config.get("line_window", 25)),
+        context_max_files=int(context_config.get("max_files", 6)),
+        context_max_expansion_level=int(context_config.get("max_expansion_level", 2)),
         max_changed_files=int(config.get("safety", {}).get("max_changed_files", 8)),
         max_changed_lines=int(config.get("safety", {}).get("max_changed_lines", 400)),
         test_commands=normalize_test_commands(config.get("test", {}).get("commands")),
-        semantic_review_enabled=bool(review_config.get("enabled", True)),
+        semantic_review_enabled=_as_bool(review_config.get("enabled", True)),
         semantic_review_max_revisions=int(review_config.get("max_semantic_revisions", 2)),
         semantic_review_parse_retries=int(review_config.get("max_parse_retries", 1)),
         semantic_review_max_context_chars=int(review_config.get("max_context_chars", 16000)),
         semantic_review_max_feedback_chars=int(review_config.get("max_feedback_chars", 3000)),
         semantic_review_max_risks=int(review_config.get("max_risks", 5)),
+        repository_context_enabled=_as_bool(repository_config.get("enabled", True)),
+        repository_max_files=int(repository_config.get("max_files", 2000)),
+        repository_max_file_bytes=int(repository_config.get("max_file_bytes", 1_000_000)),
+        repository_max_graph_depth=int(repository_config.get("max_graph_depth", 2)),
+        repository_max_related_files=int(repository_config.get("max_related_files", 6)),
+        repository_max_snippet_lines=int(repository_config.get("max_snippet_lines", 200)),
+        context_max_selected_tokens=int(context_config.get("max_selected_tokens", 12000)),
     )
     output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / "report.json").write_text(
