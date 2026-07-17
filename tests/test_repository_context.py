@@ -7,6 +7,7 @@ from pyfixagent.repository.cache import RepositoryIndexStore
 from pyfixagent.repository.indexer import RepositoryIndexer
 from pyfixagent.repository.service import RepositoryIndexService
 from pyfixagent.review.context import ReviewContextProvider
+from pyfixagent.benchmarking.manifest import load_manifest
 
 
 def make_workspace(tmp_path: Path) -> Path:
@@ -207,3 +208,35 @@ def test_file_limit_still_fingerprints_skipped_paths(tmp_path):
 
     assert before.fingerprint != after.fingerprint
     assert after.skipped_files == 1
+
+
+def test_v062_multifile_fixtures_retrieve_required_paths_without_distractors(tmp_path):
+    project_root = Path(__file__).resolve().parents[1]
+    cases = [
+        case
+        for case in load_manifest(project_root / "benchmarks" / "cases.yaml", project_root)
+        if "v0.6.2" in case.tags
+    ]
+
+    assert len(cases) == 9
+    for case in cases:
+        service = RepositoryIndexService(
+            RepositoryIndexer(),
+            RepositoryIndexStore(tmp_path / case.case_id),
+        )
+        provider = ContextProvider(
+            strategy="traceback",
+            line_window=2,
+            max_files=6,
+            repository_expander=RepositoryContextExpander(service, max_graph_depth=2),
+        )
+        pytest_output = (
+            "FAILED tests/test_visible.py::test_failure - AssertionError\n"
+            "tests/test_visible.py:1: AssertionError\n"
+        )
+
+        bundle = provider.build(case.fixture, pytest_output)
+        selected = {item["path"] for item in bundle.metadata["selected_files"]}
+
+        assert set(case.context_required_paths).issubset(selected), case.case_id
+        assert not (set(case.context_distractor_paths) & selected), case.case_id

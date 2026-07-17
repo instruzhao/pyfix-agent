@@ -126,7 +126,11 @@ def test_main_returns_nonzero_when_agent_does_not_repair(monkeypatch, tmp_path):
 
     monkeypatch.setattr(main_module, "DefaultAgent", FakeAgent)
     monkeypatch.setattr(main_module, "LiteLLMModel", lambda **kwargs: object())
-    monkeypatch.setattr(main_module, "save_trace", lambda result, output_dir: tmp_path / "trace.json")
+    monkeypatch.setattr(
+        main_module,
+        "save_trace",
+        lambda result, output_dir, redaction_mode="none": tmp_path / "trace.json",
+    )
     monkeypatch.setattr(main_module, "pprint", lambda result: None)
 
     exit_code = main_module.main(["--config", str(config_path), "--allow-dirty"])

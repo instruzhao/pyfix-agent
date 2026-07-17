@@ -63,13 +63,14 @@ def test_render_markdown_contains_run_table():
         "visible_success": True, "holdout_success": True,
         "iterations": 1, "failure_type": "success", "prompt_chars": 10,
         "input_tokens": 4, "output_tokens": 2,
+        "repair_input_tokens": 4, "repair_output_tokens": 2,
     }]
     report = {"summary": summarize_runs(runs), "runs": runs}
 
     rendered = render_markdown(report)
 
     assert "Success@1: 100.0%" in rendered
-    assert "| a | traceback | 1 | yes | n/a | yes | yes |" in rendered
+    assert "| a | default | traceback | 1 | yes | n/a | yes | yes |" in rendered
 
 
 def test_run_benchmark_resets_case_and_saves_trace(tmp_path):
@@ -112,6 +113,50 @@ def test_run_benchmark_resets_case_and_saves_trace(tmp_path):
     assert source.read_text(encoding="utf-8") == "def add(a, b):\n    return a - b\n"
 
 
+def test_runner_emits_paired_repository_variants_and_schema_four_metrics(tmp_path):
+    fixture = tmp_path / "fixture"
+    (fixture / "src").mkdir(parents=True)
+    (fixture / "tests").mkdir()
+    (fixture / "src" / "calculator.py").write_text(
+        "def add(a, b):\n    return a - b\n", encoding="utf-8"
+    )
+    (fixture / "tests" / "test_visible.py").write_text(
+        "from src.calculator import add\n\ndef test_add():\n    assert add(2, 3) == 5\n",
+        encoding="utf-8",
+    )
+    holdout = tmp_path / "holdout"
+    holdout.mkdir()
+    (holdout / "test_holdout.py").write_text(
+        "from src.calculator import add\n\ndef test_add_negative():\n    assert add(-1, 1) == 0\n",
+        encoding="utf-8",
+    )
+    case = BenchmarkCase(
+        case_id="paired",
+        allowed_paths=("src",),
+        fixture=fixture,
+        holdout_path=holdout,
+        max_iterations=1,
+        context_required_paths=("src/calculator.py",),
+        context_relevant_paths=("src/calculator.py", "tests/test_visible.py"),
+    )
+    replacement = '[{"path":"src/calculator.py","old":"return a - b","new":"return a + b"}]'
+
+    report = run_benchmark(
+        cases=[case],
+        project_root=tmp_path,
+        output_dir=tmp_path / "outputs",
+        model_factory=lambda: MockModel([replacement]),
+        repeat=1,
+        repository_modes=(False, True),
+    )
+
+    assert report["schema_version"] == 4
+    assert [run["variant"] for run in report["runs"]] == ["legacy", "repository"]
+    assert all(run["context_required_recall"] == 1.0 for run in report["runs"])
+    assert report["summary"]["repository_ab_pair_count"] == 1
+    assert report["summary"]["repository_ab_tie_count"] == 1
+
+
 def test_v2_manifest_builds_generic_task_and_rejects_task_hints(tmp_path):
     fixture = tmp_path / "fixture"
     holdout = tmp_path / "holdout"
@@ -138,6 +183,96 @@ def test_v2_manifest_builds_generic_task_and_rejects_task_hints(tmp_path):
     manifest.write_text(manifest.read_text(encoding="utf-8") + "    task: Fix rounding\n", encoding="utf-8")
     with pytest.raises(ValueError, match="must not contain task hints"):
         load_manifest(manifest, tmp_path)
+
+
+def test_v3_manifest_loads_tags_and_context_ground_truth(tmp_path):
+    fixture = tmp_path / "fixture"
+    holdout = tmp_path / "holdout"
+    (fixture / "src").mkdir(parents=True)
+    (fixture / "tests").mkdir()
+    holdout.mkdir()
+    (fixture / "src" / "app.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (fixture / "src" / "unused.py").write_text("VALUE = 0\n", encoding="utf-8")
+    (fixture / "tests" / "test_visible.py").write_text("assert False\n", encoding="utf-8")
+    manifest = tmp_path / "cases.yaml"
+    manifest.write_text(
+        "schema_version: 3\n"
+        "cases:\n"
+        "  - id: graph\n"
+        "    fixture: fixture\n"
+        "    holdout: holdout\n"
+        "    allowed_paths: [src]\n"
+        "    tags: [multifile]\n"
+        "    context_required_paths: [src/app.py]\n"
+        "    context_relevant_paths: [src/app.py, tests/test_visible.py]\n"
+        "    context_distractor_paths: [src/unused.py]\n",
+        encoding="utf-8",
+    )
+
+    case = load_manifest(manifest, tmp_path)[0]
+
+    assert case.tags == ("multifile",)
+    assert case.context_required_paths == ("src/app.py",)
+    assert case.context_distractor_paths == ("src/unused.py",)
+
+    manifest.write_text(
+        manifest.read_text(encoding="utf-8").replace(
+            "context_required_paths: [src/app.py]",
+            "context_required_paths: [/src/app.py]",
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="workspace-relative paths"):
+        load_manifest(manifest, tmp_path)
+
+
+def test_summary_separates_repository_ab_and_model_costs():
+    runs = [
+        {
+            "case_id": "a", "strategy": "traceback", "variant": "legacy", "repetition": 1,
+            "repository_context_enabled": False, "success": False, "iterations": 1,
+            "repair_input_tokens": 10, "repair_output_tokens": 5,
+        },
+        {
+            "case_id": "a", "strategy": "traceback", "variant": "repository", "repetition": 1,
+            "repository_context_enabled": True, "success": True, "iterations": 1,
+            "repair_input_tokens": 12, "repair_output_tokens": 5,
+            "review_input_tokens": 4, "review_output_tokens": 2,
+            "context_required_recall": 1.0, "context_precision": 0.75,
+            "context_distractor_rate": 0.0,
+        },
+    ]
+
+    summary = summarize_runs(runs)
+
+    assert summary["repository_success_rate"] == 1.0
+    assert summary["legacy_success_rate"] == 0.0
+    assert summary["repository_ab_pair_count"] == 1
+    assert summary["repository_ab_win_count"] == 1
+    assert summary["repair_input_tokens"] == 22
+    assert summary["review_input_tokens"] == 4
+    assert summary["average_context_required_recall"] == 1.0
+
+
+def test_summary_marks_an_unobserved_variant_as_not_applicable():
+    runs = [
+        {
+            "case_id": "a",
+            "strategy": "traceback",
+            "variant": "repository",
+            "repetition": 1,
+            "repository_context_enabled": True,
+            "success": True,
+            "iterations": 1,
+        }
+    ]
+
+    summary = summarize_runs(runs)
+    markdown = render_markdown({"summary": summary, "runs": runs})
+
+    assert summary["repository_success_rate"] == 1.0
+    assert summary["legacy_success_rate"] is None
+    assert "Legacy success rate: n/a" in markdown
 
 
 def test_fixture_run_uses_external_holdout_as_final_gate(tmp_path):
@@ -189,6 +324,9 @@ def test_fixture_run_uses_external_holdout_as_final_gate(tmp_path):
 def test_cli_defaults_to_five_independent_repetitions():
     assert parse_args([]).repeat == 5
     assert "Only modify Python files" in build_generic_task(("src",))
+    args = parse_args(["--tag", "multifile", "--repository-mode", "off", "--repository-mode", "on"])
+    assert args.tags == ["multifile"]
+    assert args.repository_modes == ["off", "on"]
 
 
 def test_case_validation_requires_failing_visible_baseline_and_external_holdout(tmp_path):

@@ -34,6 +34,23 @@ The v0.4.0 four-repetition release report is available at `docs/results/v0.4.0-q
 
 The v0.5.1 `qwen3.6-max-preview` four-repetition release report is available at `docs/results/v0.5.1-qwen3.6-max-preview-repeat4.md`. It qualifies the transactional and semantic-retry workflow while preserving the observed external-holdout failures.
 
+The v0.6.2 final-code qualification report is available at `docs/results/v0.6.2-qwen3.6-max-preview.md`. It records 19/19 completed final successes, all nine new multi-module successes, the documented-contract false-accept correction, and five existing cases left incomplete by provider quota exhaustion.
+
+## v0.6.2 Repository-context A/B Protocol
+
+Manifest schema 3 adds tags and context ground truth without changing the generic agent task. `context_required_paths`, `context_relevant_paths`, and `context_distractor_paths` are runner-only evaluation metadata. Validation requires every declared path to remain inside the fixture.
+
+Nine new `v0.6.2` cases exercise direct dependencies, transitive imports, and package re-exports. List or validate only these cases without a model call:
+
+    pyfixagent-benchmark --list --tag v0.6.2
+    pyfixagent-benchmark --validate --tag v0.6.2
+
+Run paired variants by specifying both repository modes. Each variant receives a fresh fixture copy. Four repetitions are an optional research protocol, not the v0.6.2 release gate:
+
+    pyfixagent-benchmark --tag v0.6.2 --repository-mode off --repository-mode on --repeat 4
+
+Report schema 4 separates repair and review tokens/duration, repository cache and index timing, context recall/precision/distractor rate, and paired wins/losses/ties. A legacy failure is still a failed run; A/B reports are evidence for comparison rather than a release-success shortcut.
+
 This document records a lightweight v0.2.2 comparison of PyFixAgent context strategies. It is meant to explain prompt/context behavior on the included demo workspaces, not to claim broad code repair ability.
 
 ## Benchmark Goal

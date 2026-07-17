@@ -12,6 +12,7 @@ from pyfixagent.benchmarking.runner import run_benchmark
 from pyfixagent.main import (
     build_litellm_model_name,
     build_model_extra_body,
+    build_review_model_config,
     build_system_prompt_as_user,
     load_dotenv_file,
     _as_bool,
@@ -20,6 +21,7 @@ from pyfixagent.execution.test_policy import normalize_test_commands
 from pyfixagent.models.base import BaseModel
 from pyfixagent.models.litellm_model import LiteLLMModel
 from pyfixagent.utils.config import load_config
+from pyfixagent.trace_redaction import TRACE_REDACTION_MODES
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -27,12 +29,21 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--manifest", default="benchmarks/cases.yaml")
     parser.add_argument("--config", default="configs/default.yaml")
     parser.add_argument("--case", action="append", dest="case_ids")
+    parser.add_argument("--tag", action="append", dest="tags")
     parser.add_argument("--strategy", action="append", choices=["traceback", "full"], dest="strategies")
     parser.add_argument("--repeat", type=int, default=5)
     parser.add_argument("--output-dir", default="outputs/benchmarks")
     parser.add_argument("--list", action="store_true", dest="list_cases")
     parser.add_argument("--validate", action="store_true", dest="validate_cases")
     parser.add_argument("--keep-workspaces", action="store_true")
+    parser.add_argument(
+        "--repository-mode",
+        action="append",
+        choices=["on", "off"],
+        dest="repository_modes",
+        help="Run with repository context on or off; specify both for paired A/B runs.",
+    )
+    parser.add_argument("--trace-redaction", choices=sorted(TRACE_REDACTION_MODES))
     return parser.parse_args(argv)
 
 
@@ -46,11 +57,17 @@ def main(argv: list[str] | None = None) -> int:
         missing = selected - {case.case_id for case in cases}
         if missing:
             raise ValueError(f"unknown benchmark cases: {', '.join(sorted(missing))}")
+    if args.tags:
+        requested_tags = set(args.tags)
+        cases = [case for case in cases if requested_tags.issubset(case.tags)]
+        if not cases:
+            raise ValueError(f"no benchmark cases match tags: {', '.join(sorted(requested_tags))}")
     if args.list_cases:
         for case in cases:
             source = case.fixture or case.workspace
             holdout = case.holdout_path or "none"
-            print(f"{case.case_id}\t{source}\tholdout={holdout}")
+            tags = ",".join(case.tags) or "none"
+            print(f"{case.case_id}\t{source}\tholdout={holdout}\ttags={tags}")
         return 0
     if args.validate_cases:
         results = validate_benchmark_cases(cases)
@@ -65,6 +82,7 @@ def main(argv: list[str] | None = None) -> int:
     review_config = config.get("semantic_review", {})
     repository_config = config.get("repository", {})
     context_config = config.get("context", {})
+    trace_config = config.get("trace", {})
 
     def model_factory() -> BaseModel:
         api_key_env = model_config.get("api_key_env")
@@ -79,12 +97,28 @@ def main(argv: list[str] | None = None) -> int:
             system_prompt_as_user=build_system_prompt_as_user(model_config),
         )
 
+    review_model_config = build_review_model_config(model_config, review_config)
+
+    def review_model_factory() -> BaseModel:
+        api_key_env = review_model_config.get("api_key_env")
+        return LiteLLMModel(
+            model_name=build_litellm_model_name(review_model_config),
+            api_base=review_model_config.get("api_base"),
+            api_key=os.getenv(api_key_env) if api_key_env else None,
+            temperature=float(review_model_config.get("temperature", 0.0)),
+            max_tokens=int(review_model_config.get("max_tokens", 3072)),
+            timeout_seconds=int(review_model_config.get("timeout_seconds", 60)),
+            extra_body=build_model_extra_body(review_model_config),
+            system_prompt_as_user=build_system_prompt_as_user(review_model_config),
+        )
+
     output_dir = resolve(project_root, args.output_dir)
     report = run_benchmark(
         cases=cases,
         project_root=project_root,
         output_dir=output_dir,
         model_factory=model_factory,
+        review_model_factory=review_model_factory,
         repeat=args.repeat,
         strategy_override=tuple(args.strategies or ()),
         keep_workspaces=args.keep_workspaces,
@@ -100,14 +134,23 @@ def main(argv: list[str] | None = None) -> int:
         semantic_review_parse_retries=int(review_config.get("max_parse_retries", 1)),
         semantic_review_max_context_chars=int(review_config.get("max_context_chars", 16000)),
         semantic_review_max_feedback_chars=int(review_config.get("max_feedback_chars", 3000)),
-        semantic_review_max_risks=int(review_config.get("max_risks", 5)),
+        semantic_review_max_risks=int(review_config.get("max_risks", 3)),
+        semantic_review_max_contracts=int(review_config.get("max_contracts", 3)),
         repository_context_enabled=_as_bool(repository_config.get("enabled", True)),
+        repository_modes=(
+            tuple(item == "on" for item in args.repository_modes)
+            if args.repository_modes
+            else None
+        ),
         repository_max_files=int(repository_config.get("max_files", 2000)),
         repository_max_file_bytes=int(repository_config.get("max_file_bytes", 1_000_000)),
         repository_max_graph_depth=int(repository_config.get("max_graph_depth", 2)),
         repository_max_related_files=int(repository_config.get("max_related_files", 6)),
         repository_max_snippet_lines=int(repository_config.get("max_snippet_lines", 200)),
         context_max_selected_tokens=int(context_config.get("max_selected_tokens", 12000)),
+        trace_redaction_mode=(
+            args.trace_redaction or str(trace_config.get("redaction_mode", "paths"))
+        ),
     )
     output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / "report.json").write_text(

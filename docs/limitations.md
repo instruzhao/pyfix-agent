@@ -40,4 +40,4 @@ Model responses can be malformed, incomplete, overbroad, or wrong. PyFixAgent ad
 
 ## Trace Sensitivity
 
-Traces may contain source code, pytest logs, model outputs, local paths, and environment details. Do not publish traces that contain secrets, private source code, API keys, credentials, or sensitive logs.
+Path-redacted traces may still contain source code, pytest logs, model outputs, credentials embedded in source, and other sensitive text. Safe mode hashes known source-bearing fields but is not a general secret detector and cannot guarantee that every sensitive value is removed from normalized errors or metadata. Review traces before publishing them.

@@ -12,6 +12,7 @@ from pyfixagent.execution.test_policy import normalize_test_commands
 from pyfixagent.sandbox.local_sandbox import LocalSandbox
 from pyfixagent.schemas import AgentResult
 from pyfixagent.trace import collect_environment, final_summary
+from pyfixagent.trace_redaction import TRACE_REDACTION_MODES, TraceRedactor
 from pyfixagent.utils.config import load_config
 from pyfixagent import __version__
 
@@ -39,7 +40,11 @@ DEFAULT_SEMANTIC_REVIEW_MAX_REVISIONS = 2
 DEFAULT_SEMANTIC_REVIEW_PARSE_RETRIES = 1
 DEFAULT_SEMANTIC_REVIEW_MAX_CONTEXT_CHARS = 16000
 DEFAULT_SEMANTIC_REVIEW_MAX_FEEDBACK_CHARS = 3000
-DEFAULT_SEMANTIC_REVIEW_MAX_RISKS = 5
+DEFAULT_SEMANTIC_REVIEW_MAX_RISKS = 3
+DEFAULT_SEMANTIC_REVIEW_MAX_CONTRACTS = 3
+DEFAULT_SEMANTIC_REVIEW_MAX_OUTPUT_TOKENS = 3072
+DEFAULT_SEMANTIC_REVIEW_THINKING_BUDGET = 1024
+DEFAULT_TRACE_REDACTION_MODE = "paths"
 DEFAULT_REPOSITORY_CONTEXT_ENABLED = True
 DEFAULT_REPOSITORY_CACHE_DIR = "outputs/index"
 DEFAULT_REPOSITORY_MAX_FILES = 2000
@@ -61,15 +66,16 @@ def load_dotenv_file(path: Path) -> None:
         os.environ.setdefault(key, value.strip().strip('"').strip("'"))
 
 
-def save_trace(result: AgentResult, output_dir: Path) -> Path:
+def save_trace(result: AgentResult, output_dir: Path, redaction_mode: str = "none") -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)
     if result.environment is None:
         result.environment = collect_environment(result.workspace)
     if result.final_summary is None:
         result.final_summary = final_summary(result)
     trace_path = output_dir / f"run_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}.json"
+    trace_data = TraceRedactor(redaction_mode).redact(asdict(result), workspace=result.workspace)
     trace_path.write_text(
-        json.dumps(asdict(result), ensure_ascii=False, indent=2),
+        json.dumps(trace_data, ensure_ascii=False, indent=2),
         encoding="utf-8",
         newline="\n",
     )
@@ -145,6 +151,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         dest="repository_context",
         help="Use only the legacy traceback/full context selector.",
     )
+    parser.add_argument(
+        "--trace-redaction",
+        choices=sorted(TRACE_REDACTION_MODES),
+        help="Trace privacy mode: none, paths, or safe source-content redaction.",
+    )
     return parser.parse_args(argv)
 
 
@@ -159,6 +170,7 @@ def resolve_runtime_config(project_root: Path, args: argparse.Namespace) -> dict
     test_config = config.get("test", {})
     review_config = config.get("semantic_review", {})
     repository_config = config.get("repository", {})
+    trace_config = config.get("trace", {})
 
     workspace = _resolve_path(project_root, args.workspace or paths_config.get("workspace", DEFAULT_WORKSPACE))
     return {
@@ -230,6 +242,15 @@ def resolve_runtime_config(project_root: Path, args: argparse.Namespace) -> dict
         "semantic_review_max_risks": int(
             review_config.get("max_risks", DEFAULT_SEMANTIC_REVIEW_MAX_RISKS)
         ),
+        "semantic_review_max_contracts": int(
+            review_config.get("max_contracts", DEFAULT_SEMANTIC_REVIEW_MAX_CONTRACTS)
+        ),
+        "semantic_review_max_output_tokens": int(
+            review_config.get("max_output_tokens", DEFAULT_SEMANTIC_REVIEW_MAX_OUTPUT_TOKENS)
+        ),
+        "semantic_review_thinking_budget": int(
+            review_config.get("thinking_budget", DEFAULT_SEMANTIC_REVIEW_THINKING_BUDGET)
+        ),
         "repository_context_enabled": (
             bool(args.repository_context)
             if getattr(args, "repository_context", None) is not None
@@ -254,6 +275,10 @@ def resolve_runtime_config(project_root: Path, args: argparse.Namespace) -> dict
         "repository_max_snippet_lines": int(
             repository_config.get("max_snippet_lines", DEFAULT_REPOSITORY_MAX_SNIPPET_LINES)
         ),
+        "trace_redaction_mode": (
+            getattr(args, "trace_redaction", None)
+            or str(trace_config.get("redaction_mode", DEFAULT_TRACE_REDACTION_MODE)).strip().lower()
+        ),
     }
 
 
@@ -277,6 +302,25 @@ def build_system_prompt_as_user(model_config: dict) -> bool:
     return _as_bool(model_config.get("system_prompt_as_user", False))
 
 
+def build_review_model_config(model_config: dict, review_config: dict) -> dict:
+    configured = dict(model_config)
+    configured["max_tokens"] = max(
+        256,
+        int(review_config.get("max_output_tokens", DEFAULT_SEMANTIC_REVIEW_MAX_OUTPUT_TOKENS)),
+    )
+    configured["enable_thinking"] = _as_bool(
+        review_config.get("enable_thinking", model_config.get("enable_thinking", False))
+    )
+    if configured["enable_thinking"]:
+        configured["thinking_budget"] = max(
+            1,
+            int(review_config.get("thinking_budget", DEFAULT_SEMANTIC_REVIEW_THINKING_BUDGET)),
+        )
+    else:
+        configured.pop("thinking_budget", None)
+    return configured
+
+
 def main(argv: list[str] | None = None) -> int:
     project_root = Path(__file__).resolve().parents[1]
     args = parse_args(argv)
@@ -285,6 +329,7 @@ def main(argv: list[str] | None = None) -> int:
     config = runtime["config"]
 
     model_config = config.get("model", {})
+    review_config = config.get("semantic_review", {})
     litellm_model_name = build_litellm_model_name(model_config)
 
     api_key_env = model_config.get("api_key_env")
@@ -298,6 +343,18 @@ def main(argv: list[str] | None = None) -> int:
         timeout_seconds=int(model_config.get("timeout_seconds", 60)),
         extra_body=build_model_extra_body(model_config),
         system_prompt_as_user=build_system_prompt_as_user(model_config),
+    )
+    review_model_config = build_review_model_config(model_config, review_config)
+    review_api_key_env = review_model_config.get("api_key_env")
+    review_model = LiteLLMModel(
+        model_name=build_litellm_model_name(review_model_config),
+        api_base=review_model_config.get("api_base"),
+        api_key=os.getenv(review_api_key_env) if review_api_key_env else None,
+        temperature=float(review_model_config.get("temperature", 0.0)),
+        max_tokens=int(review_model_config.get("max_tokens", DEFAULT_SEMANTIC_REVIEW_MAX_OUTPUT_TOKENS)),
+        timeout_seconds=int(review_model_config.get("timeout_seconds", 60)),
+        extra_body=build_model_extra_body(review_model_config),
+        system_prompt_as_user=build_system_prompt_as_user(review_model_config),
     )
 
     sandbox = LocalSandbox(
@@ -329,6 +386,8 @@ def main(argv: list[str] | None = None) -> int:
         semantic_review_max_context_chars=runtime["semantic_review_max_context_chars"],
         semantic_review_max_feedback_chars=runtime["semantic_review_max_feedback_chars"],
         semantic_review_max_risks=runtime["semantic_review_max_risks"],
+        semantic_review_max_contracts=runtime["semantic_review_max_contracts"],
+        review_model=review_model,
         repository_context_enabled=runtime["repository_context_enabled"],
         repository_cache_dir=runtime["repository_cache_dir"],
         repository_max_files=runtime["repository_max_files"],
@@ -339,7 +398,11 @@ def main(argv: list[str] | None = None) -> int:
         context_max_selected_tokens=runtime["context_max_selected_tokens"],
     )
     result = agent.run(runtime["task"])
-    trace_path = save_trace(result, runtime["trace_output_dir"])
+    trace_path = save_trace(
+        result,
+        runtime["trace_output_dir"],
+        redaction_mode=runtime["trace_redaction_mode"],
+    )
     print(f"[agent] trace saved to {trace_path}")
     pprint(result)
     if result.success:

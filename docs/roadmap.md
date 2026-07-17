@@ -60,11 +60,23 @@
 - content-addressed index caching with edit-driven invalidation
 - repository metadata in trace schema 1.3
 
-## Next
+## v0.6.2 Scale Validation and Cost Boundaries — Completed
 
-- larger, more varied hint-free benchmark cases with genuinely multi-module failures
-- release comparisons that report semantic quality separately from model cost and visible-test success
-- trace redaction and a static trace viewer
+- benchmark manifest schema 3 with tags, context ground truth, and distractors
+- nine new hint-free multi-module cases, for 24 total
+- paired repository-context A/B variants and benchmark report schema 4
+- separate repair/review token and latency metrics plus repository cache/index metrics
+- independently bounded reviewer model and compact review contracts
+- deterministic enforcement check for explicit positive-input docstring contracts
+- configurable path and safe source-content trace redaction in trace schema 1.4
+
+## Next: v0.7.0 Execution Isolation
+
+- container-backed sandbox implementation behind the existing execution boundary
+- filesystem, network, process, CPU, memory, and timeout policies
+- explicit dependency installation policy and reproducible environment capture
+- human approval before applying exported patches to a selected checkout
+- trace redaction audit and a static trace viewer
 
 ## Deferred
 

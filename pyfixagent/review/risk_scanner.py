@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 from dataclasses import dataclass
+import re
 
 
 @dataclass(frozen=True)
@@ -71,7 +72,84 @@ class StructuralRiskScanner:
                         "stage, and whether the implicit halfway rule is supported by domain evidence.",
                     ),
                 )
+            if self._has_unenforced_positive_precondition(tree):
+                self._add(
+                    cues,
+                    StructuralRiskCue(
+                        "declared_positive_precondition",
+                        "boundary",
+                        "A changed public function explicitly declares positive input bounds, but not every "
+                        "parameter has a visible non-positive-value guard. Check zero and negative values "
+                        "for each declared input before accepting the candidate.",
+                    ),
+                )
         return tuple(cues)
+
+    @classmethod
+    def _has_unenforced_positive_precondition(cls, tree: ast.AST) -> bool:
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            if node.name.startswith("_"):
+                continue
+            docstring = ast.get_docstring(node, clean=True) or ""
+            if not re.search(
+                r"\bpositive(?:\s+[a-z_]+){0,2}\s+"
+                r"(?:inputs?|arguments?|parameters?|bounds?|durations?|timeouts?|limits?|counts?|sizes?)\b",
+                docstring.lower(),
+            ):
+                continue
+            parameters = [
+                argument.arg
+                for argument in (*node.args.posonlyargs, *node.args.args, *node.args.kwonlyargs)
+                if argument.arg not in {"self", "cls"}
+            ]
+            if parameters and any(
+                not cls._has_non_positive_guard(node, parameter)
+                for parameter in parameters
+            ):
+                return True
+        return False
+
+    @staticmethod
+    def _has_non_positive_guard(
+        function: ast.FunctionDef | ast.AsyncFunctionDef,
+        parameter: str,
+    ) -> bool:
+        for branch in ast.walk(function):
+            if not isinstance(branch, ast.If):
+                continue
+            if not any(isinstance(item, ast.Raise) for item in ast.walk(branch)):
+                continue
+            for comparison in ast.walk(branch.test):
+                if not isinstance(comparison, ast.Compare) or len(comparison.ops) != 1:
+                    continue
+                left = comparison.left
+                right = comparison.comparators[0]
+                operator = comparison.ops[0]
+                if (
+                    isinstance(left, ast.Name)
+                    and left.id == parameter
+                    and isinstance(right, ast.Constant)
+                    and isinstance(right.value, (int, float))
+                    and (
+                        isinstance(operator, ast.LtE) and right.value >= 0
+                        or isinstance(operator, ast.Lt) and right.value > 0
+                    )
+                ):
+                    return True
+                if (
+                    isinstance(right, ast.Name)
+                    and right.id == parameter
+                    and isinstance(left, ast.Constant)
+                    and isinstance(left.value, (int, float))
+                    and (
+                        isinstance(operator, ast.GtE) and left.value >= 0
+                        or isinstance(operator, ast.Gt) and left.value > 0
+                    )
+                ):
+                    return True
+        return False
 
     @staticmethod
     def _add(cues: list[StructuralRiskCue], cue: StructuralRiskCue) -> None:

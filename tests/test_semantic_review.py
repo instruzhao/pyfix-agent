@@ -91,6 +91,17 @@ def test_review_parser_requires_evidence_for_blocking_risk():
         ReviewParser().parse(json.dumps(data))
 
 
+def test_review_parser_enforces_compact_contract_budget():
+    data = json.loads(accept_review())
+    data["contracts"] = [
+        {"id": f"C{index}", "statement": "contract", "evidence": [], "confidence": 0.5}
+        for index in range(1, 5)
+    ]
+
+    with pytest.raises(ReviewParseError, match="contracts exceeds"):
+        ReviewParser(max_contracts=3).parse(json.dumps(data))
+
+
 def test_review_policy_only_revises_validated_blockers_within_budget():
     outcome = ReviewParser().parse(revise_review())
     policy = ReviewPolicy(max_semantic_revisions=1)
@@ -150,6 +161,46 @@ def test_structural_risk_scanner_emits_code_derived_generic_cues():
             'def money(value):\n    return value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)\n',
         ]
     )
+    assert mitigated == ()
+
+
+def test_structural_risk_scanner_requires_declared_positive_guards():
+    scanner = StructuralRiskScanner()
+
+    cues = scanner.scan(
+        [
+            "def schedule(attempt, base_seconds, max_seconds):\n"
+            '    """Use a one-based attempt and positive delay bounds."""\n'
+            "    if attempt < 1:\n"
+            '        raise ValueError("attempt")\n'
+            "    return min(base_seconds * attempt, max_seconds)\n"
+        ]
+    )
+
+    assert [cue.cue_id for cue in cues] == ["declared_positive_precondition"]
+
+    zero_still_allowed = scanner.scan(
+        [
+            "def schedule(attempt, base_seconds, max_seconds):\n"
+            '    """Use a one-based attempt and positive delay bounds."""\n'
+            "    if attempt < 1 or base_seconds < 0 or max_seconds < 0:\n"
+            '        raise ValueError("inputs")\n'
+            "    return min(base_seconds * attempt, max_seconds)\n"
+        ]
+    )
+
+    assert [cue.cue_id for cue in zero_still_allowed] == ["declared_positive_precondition"]
+
+    mitigated = scanner.scan(
+        [
+            "def schedule(attempt, base_seconds, max_seconds):\n"
+            '    """Use a one-based attempt and positive delay bounds."""\n'
+            "    if attempt < 1 or base_seconds <= 0 or max_seconds <= 0:\n"
+            '        raise ValueError("positive inputs required")\n'
+            "    return min(base_seconds * attempt, max_seconds)\n"
+        ]
+    )
+
     assert mitigated == ()
 
 

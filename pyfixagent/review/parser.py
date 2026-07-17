@@ -24,9 +24,15 @@ class ReviewParseError(ValueError):
 
 
 class ReviewParser:
-    def __init__(self, max_risks: int = 5, max_text_chars: int = 3000):
+    def __init__(
+        self,
+        max_risks: int = 5,
+        max_text_chars: int = 3000,
+        max_contracts: int = 3,
+    ):
         self.max_risks = max(1, max_risks)
         self.max_text_chars = max(200, max_text_chars)
+        self.max_contracts = max(1, max_contracts)
 
     def parse(self, raw: str) -> ReviewOutcome:
         text = raw.strip()
@@ -57,9 +63,11 @@ class ReviewParser:
     def _contracts(self, value) -> list[dict]:
         if not isinstance(value, list):
             raise ReviewParseError("contracts must be an array")
+        if len(value) > self.max_contracts:
+            raise ReviewParseError(f"contracts exceeds configured maximum of {self.max_contracts}")
         contracts: list[dict] = []
         seen: set[str] = set()
-        for item in value[:10]:
+        for item in value:
             if not isinstance(item, dict):
                 raise ReviewParseError("each contract must be an object")
             contract_id = self._text(item.get("id"), "contract.id")
