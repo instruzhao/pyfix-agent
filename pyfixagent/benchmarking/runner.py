@@ -37,6 +37,13 @@ def run_benchmark(
     semantic_review_max_context_chars: int = 16000,
     semantic_review_max_feedback_chars: int = 3000,
     semantic_review_max_risks: int = 5,
+    repository_context_enabled: bool = False,
+    repository_max_files: int = 2000,
+    repository_max_file_bytes: int = 1_000_000,
+    repository_max_graph_depth: int = 2,
+    repository_max_related_files: int = 6,
+    repository_max_snippet_lines: int = 200,
+    context_max_selected_tokens: int = 12000,
 ) -> dict:
     if repeat < 1:
         raise ValueError("repeat must be at least 1")
@@ -77,6 +84,14 @@ def run_benchmark(
                         semantic_review_max_context_chars=semantic_review_max_context_chars,
                         semantic_review_max_feedback_chars=semantic_review_max_feedback_chars,
                         semantic_review_max_risks=semantic_review_max_risks,
+                        repository_context_enabled=repository_context_enabled,
+                        repository_cache_dir=output_dir / "index",
+                        repository_max_files=repository_max_files,
+                        repository_max_file_bytes=repository_max_file_bytes,
+                        repository_max_graph_depth=repository_max_graph_depth,
+                        repository_max_related_files=repository_max_related_files,
+                        repository_max_snippet_lines=repository_max_snippet_lines,
+                        context_max_selected_tokens=context_max_selected_tokens,
                     )
                     result = agent.run(case.agent_task)
                     candidate_patch = result.candidate_patch or result.patch

@@ -32,7 +32,9 @@ PyFixAgent writes structured JSON traces so a repair run can be inspected withou
 
 `context.stats` stores counts and sizes, including selected file count, selected snippet count, selected context characters, pytest output characters, prompt characters, and fallback status.
 
-Traceback context is lightweight. It is not a complete import graph, repository index, or vector search result.
+With repository context enabled, `context.repository` records the content fingerprint, cache source, indexed file/symbol/edge counts, parse/skipped counts, seed paths, graph depth, related-file count, source-token budget, estimated selected tokens, and whether the budget truncated selection. Related `context.selected_files` entries may also include `score`, `graph_distance`, and `symbol`.
+
+The repository metadata describes a static bounded Python import graph. It is not a dynamic call graph, cross-language index, or vector search result.
 
 For benchmark comparisons, `context.stats` is the main source for prompt and context size metrics. `selected_context_chars` measures the selected source snippets, while `prompt_chars` measures the full prompt sent for that iteration after pytest output, file tree, feedback, and context are combined.
 
@@ -75,6 +77,8 @@ The result also includes a short reason so readers can quickly tell whether the 
 `context_expansion_level` records the plan used for an iteration. The corresponding `context` metadata includes `base_strategy`, `expansion_level`, `effective_line_window`, and `effective_max_files`, so retry-driven context growth can be audited without reconstructing configuration state.
 
 Trace schema 1.2 adds `visible_success`, `acceptance_status`, `candidate_patch`, `candidate_patch_path`, `semantic_revisions_used`, and a `reviews` array. Each review records the candidate iteration/checkpoint, prompt, raw and parsed output, validation error, model calls, context metadata, policy action/reason, and selected risk IDs. Iterations record whether they were triggered by pytest failure or semantic revision and which review feedback IDs they consumed.
+
+Trace schema 1.3 adds optional static repository context metadata. Existing fields are unchanged, and runs constructed with repository context disabled retain the previous context shape.
 
 ## Model Output
 

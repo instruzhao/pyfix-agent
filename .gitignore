@@ -13,6 +13,7 @@ venv/
 outputs/patches/*
 outputs/traces/*
 outputs/benchmarks/*
+outputs/index/*
 outputs/*.log
 !outputs/patches/.gitkeep
 !outputs/traces/.gitkeep

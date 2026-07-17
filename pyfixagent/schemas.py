@@ -73,7 +73,7 @@ class AgentResult:
     error: str | None = None
     environment: dict | None = None
     final_summary: dict | None = None
-    trace_schema_version: str = "1.2"
+    trace_schema_version: str = "1.3"
     workspace_state: dict | None = None
     final_patch_path: str = ""
     visible_success: bool = False

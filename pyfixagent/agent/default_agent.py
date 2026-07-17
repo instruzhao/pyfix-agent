@@ -2,6 +2,7 @@ from pathlib import Path
 
 from pyfixagent.context.provider import ContextProvider
 from pyfixagent.context.policy import ContextExpansionPolicy
+from pyfixagent.context.repository import RepositoryContextExpander
 from pyfixagent.core.contracts import RepairRequest
 from pyfixagent.core.engine import RepairEngine
 from pyfixagent.execution.test_runner import TestRunner
@@ -18,6 +19,9 @@ from pyfixagent.review.context import ReviewContextProvider
 from pyfixagent.review.parser import ReviewParser
 from pyfixagent.review.policy import ReviewPolicy
 from pyfixagent.review.reviewer import SemanticReviewer
+from pyfixagent.repository.cache import RepositoryIndexStore
+from pyfixagent.repository.indexer import RepositoryIndexer
+from pyfixagent.repository.service import RepositoryIndexService
 from pyfixagent.sandbox.local_sandbox import LocalSandbox
 from pyfixagent.schemas import AgentResult
 from pyfixagent.tools.edit_policy import EditPolicy
@@ -51,6 +55,14 @@ class DefaultAgent:
         semantic_review_max_context_chars: int = 16000,
         semantic_review_max_feedback_chars: int = 3000,
         semantic_review_max_risks: int = 5,
+        repository_context_enabled: bool = False,
+        repository_cache_dir: Path | None = None,
+        repository_max_files: int = 2000,
+        repository_max_file_bytes: int = 1_000_000,
+        repository_max_graph_depth: int = 2,
+        repository_max_related_files: int = 6,
+        repository_max_snippet_lines: int = 200,
+        context_max_selected_tokens: int = 12000,
     ):
         if initial_mode not in {"patch", "replacement"}:
             raise ValueError("initial_mode must be 'patch' or 'replacement'")
@@ -78,6 +90,18 @@ class DefaultAgent:
         self.semantic_review_max_context_chars = max(1000, semantic_review_max_context_chars)
         self.semantic_review_max_feedback_chars = max(200, semantic_review_max_feedback_chars)
         self.semantic_review_max_risks = max(1, semantic_review_max_risks)
+        self.repository_context_enabled = repository_context_enabled
+        self.repository_cache_dir = (
+            Path(repository_cache_dir)
+            if repository_cache_dir is not None
+            else self.patch_output_dir.parent / "index"
+        )
+        self.repository_max_files = max(1, repository_max_files)
+        self.repository_max_file_bytes = max(1, repository_max_file_bytes)
+        self.repository_max_graph_depth = max(0, repository_max_graph_depth)
+        self.repository_max_related_files = max(0, repository_max_related_files)
+        self.repository_max_snippet_lines = max(20, repository_max_snippet_lines)
+        self.context_max_selected_tokens = max(100, context_max_selected_tokens)
         self.edit_policy = EditPolicy(
             allowed_paths=tuple(allowed_paths or ()),
             max_files=max(1, max_changed_files),
@@ -94,6 +118,7 @@ class DefaultAgent:
 
     def _build_engine(self) -> RepairEngine:
         model_client = ModelClient(self.model)
+        repository_expander = self._build_repository_expander()
         return RepairEngine(
             workspace_session=WorkspaceSession(
                 self.sandbox.workspace,
@@ -108,6 +133,7 @@ class DefaultAgent:
                 max_files=self.context_max_files,
                 fallback_to_full=self.context_fallback_to_full,
                 include_tests=self.context_include_tests,
+                repository_expander=repository_expander,
             ),
             context_policy=ContextExpansionPolicy(self.context_max_expansion_level),
             prompt_builder=PromptBuilder(),
@@ -122,6 +148,7 @@ class DefaultAgent:
             review_context_provider=ReviewContextProvider(
                 max_chars=self.semantic_review_max_context_chars,
                 include_tests=self.context_include_tests,
+                repository_expander=repository_expander,
             ),
             semantic_reviewer=SemanticReviewer(
                 model_client,
@@ -135,6 +162,25 @@ class DefaultAgent:
             review_max_feedback_chars=self.semantic_review_max_feedback_chars,
         )
 
+    def _build_repository_expander(self) -> RepositoryContextExpander | None:
+        if not self.repository_context_enabled:
+            return None
+        service = RepositoryIndexService(
+            RepositoryIndexer(
+                include_tests=self.context_include_tests,
+                max_files=self.repository_max_files,
+                max_file_bytes=self.repository_max_file_bytes,
+            ),
+            RepositoryIndexStore(self.repository_cache_dir),
+        )
+        return RepositoryContextExpander(
+            service,
+            max_selected_tokens=self.context_max_selected_tokens,
+            max_graph_depth=self.repository_max_graph_depth,
+            max_related_files=self.repository_max_related_files,
+            max_snippet_lines=self.repository_max_snippet_lines,
+        )
+
     @staticmethod
     def _format_test_output(result) -> str:
         return TestRunner.format_output(result)
@@ -146,6 +192,7 @@ class DefaultAgent:
             max_files=self.context_max_files,
             fallback_to_full=self.context_fallback_to_full,
             include_tests=self.context_include_tests,
+            repository_expander=self._build_repository_expander(),
         ).build(workspace, pytest_output)
         return bundle.rendered, bundle.metadata
 

@@ -107,7 +107,13 @@ The default strategy is `traceback`. It is lightweight and based on pytest failu
 - traceback source files
 - direct imports from failing tests
 
-This is not a complete import graph, repository index, or RAG system. The strategy is meant to keep small demo prompts focused on files likely to explain the current failure.
+In v0.6.1, traceback selection is the seed stage. `RepositoryIndexer` parses Python files without importing them, `RepositoryIndexService` owns content fingerprints and cache lookup, and `RepositoryContextExpander` alone owns graph traversal, ranking, symbol selection, and source-context budgeting. `ContextProvider` still returns the same `ContextBundle`, so the repair engine does not depend on repository internals.
+
+Import dependencies and reverse importers are traversed to a bounded depth. Seeds always retain priority; related files use stable scores and lexical tie-breaking. When query evidence references an indexed symbol, its source range is selected. Otherwise, a bounded file prefix is used. The aggregate selected source is clipped using a conservative character-to-token estimate.
+
+The cache is content-addressed and stored outside the active repair workspace. If configuration points it inside that workspace, persistent caching is bypassed so cache files cannot enter the candidate patch. Any source edit changes the fingerprint and causes a new index to be built before the next repair or review context request.
+
+This is not a complete semantic call graph or RAG system. It does not execute imports, resolve dynamic dispatch, index non-Python languages, or use embeddings.
 
 The `full` strategy is available for small workspaces and includes all Python files in the workspace. It gives the model broader context, but it can include unrelated code and larger prompts.
 
@@ -161,4 +167,4 @@ When an edit applies but pytest still fails, `AttemptEvaluator` classifies the f
 
 ## Limitations
 
-The current design is intentionally narrow. It depends on pytest as the validation signal, uses lightweight context selection, trusts a local workspace boundary, and does not attempt full repository understanding. These are prototype boundaries, not hidden production guarantees.
+The current design is intentionally narrow. It depends on pytest as the validation signal, uses bounded static Python context, trusts a local workspace boundary, and does not attempt dynamic or cross-language repository understanding. These are prototype boundaries, not hidden production guarantees.

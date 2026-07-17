@@ -26,6 +26,7 @@ DEFAULT_MAX_ITERATIONS = 5
 DEFAULT_CONTEXT_STRATEGY = "traceback"
 DEFAULT_CONTEXT_LINE_WINDOW = 40
 DEFAULT_CONTEXT_MAX_FILES = 6
+DEFAULT_CONTEXT_MAX_SELECTED_TOKENS = 12000
 DEFAULT_CONTEXT_MAX_EXPANSION_LEVEL = 2
 DEFAULT_CONTEXT_FALLBACK_TO_FULL = True
 DEFAULT_CONTEXT_INCLUDE_TESTS = True
@@ -39,6 +40,13 @@ DEFAULT_SEMANTIC_REVIEW_PARSE_RETRIES = 1
 DEFAULT_SEMANTIC_REVIEW_MAX_CONTEXT_CHARS = 16000
 DEFAULT_SEMANTIC_REVIEW_MAX_FEEDBACK_CHARS = 3000
 DEFAULT_SEMANTIC_REVIEW_MAX_RISKS = 5
+DEFAULT_REPOSITORY_CONTEXT_ENABLED = True
+DEFAULT_REPOSITORY_CACHE_DIR = "outputs/index"
+DEFAULT_REPOSITORY_MAX_FILES = 2000
+DEFAULT_REPOSITORY_MAX_FILE_BYTES = 1_000_000
+DEFAULT_REPOSITORY_MAX_GRAPH_DEPTH = 2
+DEFAULT_REPOSITORY_MAX_RELATED_FILES = 6
+DEFAULT_REPOSITORY_MAX_SNIPPET_LINES = 200
 
 
 def load_dotenv_file(path: Path) -> None:
@@ -123,6 +131,20 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         dest="semantic_review",
         help="Use visible pytest success as the final acceptance signal.",
     )
+    repository_group = parser.add_mutually_exclusive_group()
+    repository_group.add_argument(
+        "--repository-context",
+        action="store_true",
+        dest="repository_context",
+        default=None,
+        help="Enable static repository indexing and graph-expanded context.",
+    )
+    repository_group.add_argument(
+        "--no-repository-context",
+        action="store_false",
+        dest="repository_context",
+        help="Use only the legacy traceback/full context selector.",
+    )
     return parser.parse_args(argv)
 
 
@@ -136,6 +158,7 @@ def resolve_runtime_config(project_root: Path, args: argparse.Namespace) -> dict
     safety_config = config.get("safety", {})
     test_config = config.get("test", {})
     review_config = config.get("semantic_review", {})
+    repository_config = config.get("repository", {})
 
     workspace = _resolve_path(project_root, args.workspace or paths_config.get("workspace", DEFAULT_WORKSPACE))
     return {
@@ -160,6 +183,9 @@ def resolve_runtime_config(project_root: Path, args: argparse.Namespace) -> dict
         "context_strategy": args.context_strategy or context_config.get("strategy", DEFAULT_CONTEXT_STRATEGY),
         "context_line_window": int(context_config.get("line_window", DEFAULT_CONTEXT_LINE_WINDOW)),
         "context_max_files": int(context_config.get("max_files", DEFAULT_CONTEXT_MAX_FILES)),
+        "context_max_selected_tokens": int(
+            context_config.get("max_selected_tokens", DEFAULT_CONTEXT_MAX_SELECTED_TOKENS)
+        ),
         "context_max_expansion_level": int(
             context_config.get("max_expansion_level", DEFAULT_CONTEXT_MAX_EXPANSION_LEVEL)
         ),
@@ -203,6 +229,30 @@ def resolve_runtime_config(project_root: Path, args: argparse.Namespace) -> dict
         ),
         "semantic_review_max_risks": int(
             review_config.get("max_risks", DEFAULT_SEMANTIC_REVIEW_MAX_RISKS)
+        ),
+        "repository_context_enabled": (
+            bool(args.repository_context)
+            if getattr(args, "repository_context", None) is not None
+            else _as_bool(repository_config.get("enabled", DEFAULT_REPOSITORY_CONTEXT_ENABLED))
+        ),
+        "repository_cache_dir": _resolve_path(
+            project_root,
+            repository_config.get("cache_dir", DEFAULT_REPOSITORY_CACHE_DIR),
+        ),
+        "repository_max_files": int(
+            repository_config.get("max_files", DEFAULT_REPOSITORY_MAX_FILES)
+        ),
+        "repository_max_file_bytes": int(
+            repository_config.get("max_file_bytes", DEFAULT_REPOSITORY_MAX_FILE_BYTES)
+        ),
+        "repository_max_graph_depth": int(
+            repository_config.get("max_graph_depth", DEFAULT_REPOSITORY_MAX_GRAPH_DEPTH)
+        ),
+        "repository_max_related_files": int(
+            repository_config.get("max_related_files", DEFAULT_REPOSITORY_MAX_RELATED_FILES)
+        ),
+        "repository_max_snippet_lines": int(
+            repository_config.get("max_snippet_lines", DEFAULT_REPOSITORY_MAX_SNIPPET_LINES)
         ),
     }
 
@@ -279,6 +329,14 @@ def main(argv: list[str] | None = None) -> int:
         semantic_review_max_context_chars=runtime["semantic_review_max_context_chars"],
         semantic_review_max_feedback_chars=runtime["semantic_review_max_feedback_chars"],
         semantic_review_max_risks=runtime["semantic_review_max_risks"],
+        repository_context_enabled=runtime["repository_context_enabled"],
+        repository_cache_dir=runtime["repository_cache_dir"],
+        repository_max_files=runtime["repository_max_files"],
+        repository_max_file_bytes=runtime["repository_max_file_bytes"],
+        repository_max_graph_depth=runtime["repository_max_graph_depth"],
+        repository_max_related_files=runtime["repository_max_related_files"],
+        repository_max_snippet_lines=runtime["repository_max_snippet_lines"],
+        context_max_selected_tokens=runtime["context_max_selected_tokens"],
     )
     result = agent.run(runtime["task"])
     trace_path = save_trace(result, runtime["trace_output_dir"])

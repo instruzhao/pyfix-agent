@@ -14,6 +14,7 @@ from pyfixagent.repair.backends.patch import PatchBackend
 from pyfixagent.repair.backends.replacement import ReplacementBackend
 from pyfixagent.repair.model_client import ModelClient, ModelGenerationError
 from pyfixagent.repair.retry_policy import RetryPolicy
+from pyfixagent.context.repository import RepositoryContextExpander
 from pyfixagent.sandbox.local_sandbox import LocalSandbox
 from pyfixagent.tools.edit_policy import EditPolicy
 
@@ -198,6 +199,24 @@ def test_default_agent_is_a_component_assembly_facade(tmp_path):
     assert isinstance(engine.backends["patch"], PatchBackend)
     assert isinstance(engine.backends["replacement"], ReplacementBackend)
     assert engine.test_runner.sandbox is agent.sandbox
+
+
+def test_default_agent_assembles_one_shared_repository_context_service(tmp_path):
+    workspace = init_git_workspace(tmp_path)
+    agent = DefaultAgent(
+        model=MockModel([]),
+        sandbox=LocalSandbox(workspace),
+        patch_output_dir=tmp_path / "patches",
+        repository_context_enabled=True,
+        repository_cache_dir=tmp_path / "index",
+    )
+
+    engine = agent._build_engine()
+
+    repair_expander = engine.context_provider.repository_expander
+    review_expander = engine.review_context_provider.repository_expander
+    assert isinstance(repair_expander, RepositoryContextExpander)
+    assert repair_expander is review_expander
 
 
 def test_benchmark_module_remains_a_compatibility_facade():

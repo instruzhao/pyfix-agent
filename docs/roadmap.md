@@ -53,15 +53,17 @@
 - strict reviewer JSON, evidence validation, fail-closed `needs_review`, and bounded revisions
 - benchmark report schema 3 with false-accept and false-reject metrics
 
-## Next: v0.6.1 Repository Understanding
+## v0.6.1 Repository Understanding — Completed
 
 - token-based context budgeting and symbol-level dependency expansion
 - static import and caller relationships without a vector database
-- larger, more varied hint-free benchmark cases
-- release comparison that reports semantic quality separately from model cost and visible-test success
+- content-addressed index caching with edit-driven invalidation
+- repository metadata in trace schema 1.3
 
-## Later
+## Next
 
+- larger, more varied hint-free benchmark cases with genuinely multi-module failures
+- release comparisons that report semantic quality separately from model cost and visible-test success
 - trace redaction and a static trace viewer
 
 ## Deferred

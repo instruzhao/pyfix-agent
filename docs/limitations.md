@@ -18,21 +18,17 @@ The CLI requires a Git repository with a HEAD commit and requires a clean select
 
 PyFixAgent treats pytest as the primary correctness signal. If tests are incomplete, flaky, slow, or misleading, the repair loop inherits those weaknesses.
 
-## Context Selection Is Lightweight
+## Repository Understanding Is Static and Bounded
 
-The default traceback context strategy uses failing tests, traceback frames, and direct test imports. It is designed to be simple and inspectable.
-
-## No Full Repository Indexing
-
-PyFixAgent does not build or maintain a full repository index.
+The default traceback context strategy uses failing tests, traceback frames, and direct test imports as seeds. v0.6.1 adds an execution-free Python AST index and bounded direct import/importer traversal. It does not resolve runtime imports, dynamic dispatch, monkeypatching, generated modules, or non-Python dependencies.
 
 ## No Vector Database / RAG
 
 There is no vector database, embedding search, or retrieval-augmented generation system.
 
-## No Complete Dependency Graph
+## No Dynamic or Cross-language Dependency Graph
 
-Direct imports from failing tests may be included, but the project does not compute a complete import graph or dependency graph.
+The static graph is evidence for context selection, not a claim of complete program understanding.
 
 ## No GitHub PR Integration
 
