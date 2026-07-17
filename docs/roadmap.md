@@ -46,10 +46,15 @@
 - bounded traceback expansion followed by full context at the configured maximum level
 - `qwen3.6-max-preview` real-model qualification across 15 cases and four repetitions
 
-## Next: v0.6 Semantic Acceptance and Repository Understanding
+## v0.6.0 Semantic Acceptance — Completed
 
 - a holdout-blind semantic acceptance stage after visible tests pass, separate from edit/apply retry
 - code-derived contract risks and counterexample categories instead of case-specific prompt hints
+- strict reviewer JSON, evidence validation, fail-closed `needs_review`, and bounded revisions
+- benchmark report schema 3 with false-accept and false-reject metrics
+
+## Next: v0.6.1 Repository Understanding
+
 - token-based context budgeting and symbol-level dependency expansion
 - static import and caller relationships without a vector database
 - larger, more varied hint-free benchmark cases

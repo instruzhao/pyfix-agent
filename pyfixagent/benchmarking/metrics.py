@@ -5,6 +5,8 @@ def summarize_runs(runs: list[dict]) -> dict:
     total = len(runs)
     successes = sum(bool(run.get("success")) for run in runs)
     visible_successes = sum(bool(run.get("visible_success")) for run in runs)
+    candidate_successes = sum(bool(run.get("candidate_success")) for run in runs)
+    accepted = sum(bool(run.get("agent_accepted")) for run in runs)
     holdout_evaluated = [run for run in runs if run.get("holdout_success") is not None]
     holdout_successes = sum(bool(run.get("holdout_success")) for run in holdout_evaluated)
     case_keys = {(run.get("case_id"), run.get("strategy")) for run in runs}
@@ -26,6 +28,8 @@ def summarize_runs(runs: list[dict]) -> dict:
         "successful_runs": successes,
         "success_rate": rate(successes, total),
         "visible_success_rate": rate(visible_successes, total),
+        "candidate_success_rate": rate(candidate_successes, total),
+        "review_acceptance_rate": rate(accepted, total),
         "holdout_success_rate": rate(holdout_successes, len(holdout_evaluated)),
         "case_strategy_pairs": len(case_keys),
         "pass_at_k": rate(passed_cases, len(case_keys)),
@@ -40,6 +44,14 @@ def summarize_runs(runs: list[dict]) -> dict:
         "total_prompt_chars": sum(int(run.get("prompt_chars", 0)) for run in runs),
         "total_input_tokens": sum(int(run.get("input_tokens", 0)) for run in runs),
         "total_output_tokens": sum(int(run.get("output_tokens", 0)) for run in runs),
+        "review_input_tokens": sum(int(run.get("review_input_tokens", 0)) for run in runs),
+        "review_output_tokens": sum(int(run.get("review_output_tokens", 0)) for run in runs),
+        "review_count": sum(int(run.get("review_count", 0)) for run in runs),
+        "semantic_revision_count": sum(
+            int(run.get("semantic_revisions_used", 0)) for run in runs
+        ),
+        "false_accept_count": sum(run.get("failure_type") == "false_accept" for run in runs),
+        "false_reject_count": sum(run.get("failure_type") == "false_reject" for run in runs),
     }
 
 

@@ -6,7 +6,7 @@ It is a prototype for demonstrating the repair loop and traceability. It is not 
 
 ## Overview
 
-The default v0.5 workflow is intentionally small and transactional:
+The default v0.6 workflow is transactional and review-gated:
 
     create a temporary Git worktree
     run the configured pytest command
@@ -17,8 +17,9 @@ The default v0.5 workflow is intentionally small and transactional:
     rerun pytest
     record structured trace
     checkpoint progress or roll back regressions
-    iterate until tests pass or max iterations is reached
-    export a final patch and remove the worktree
+    review visible-pass candidates for semantic risks
+    perform bounded evidence-driven revisions
+    export a candidate/final patch and remove the worktree
 
 The repository includes two resettable demo workspaces:
 
@@ -54,6 +55,7 @@ The repository includes two resettable demo workspaces:
 - Configurable argv-only pytest commands protected by an explicit command policy.
 - Failure-delta retry decisions that distinguish partial progress, no progress, regressions, and timeouts.
 - Bounded context expansion after rolled-back semantic failures.
+- Independent semantic review with strict JSON, evidence validation, deterministic structural risk cues, and bounded revisions.
 
 ## Quick Start
 
@@ -197,6 +199,8 @@ v0.5.0 moves the default CLI repair into a temporary Git worktree, adds checkpoi
 
 v0.5.1 moves semantic retry decisions into `RetryPolicy`: partial progress is checkpointed, while no-progress attempts and regressions are rolled back before retrying with bounded expanded context. Its `qwen3.6-max-preview` release qualification reached 100% visible-test success and 86.7% external-holdout success across 60 runs. See `docs/v0.5.1.md` for the release notes and `docs/results/v0.5.1-qwen3.6-max-preview-repeat4.md` for the sanitized report.
 
+v0.6.0 separates visible-test success from final semantic acceptance. An independent reviewer can accept a candidate, request a bounded evidence-driven revision, or return `needs_review`; external holdouts remain inaccessible to the agent. Its one-run `qwen3.6-max-preview` qualification passed all 15 visible suites and all 15 external holdouts with zero false accepts or false rejects. See `docs/v0.6.0.md` for the release notes and `docs/results/v0.6.0-qwen3.6-max-preview.md` for the sanitized report.
+
 ## Limitations
 
 - Not a production-grade sandbox.
@@ -220,4 +224,4 @@ Future work is listed in `docs/roadmap.md`. Items there are not implemented unle
 
 ## Project Status
 
-PyFixAgent v0.5.1 is a transactional local repair baseline with role-oriented internals, constrained edits, temporary-worktree execution, semantic rollback/retry, bounded context expansion, isolated repeatable evaluation, holdout validation, and traceability. It remains intended for trusted Python projects: a Git worktree protects the selected checkout from repair mutations but is not a security sandbox, and container isolation is still future work.
+PyFixAgent v0.6.0 is a transactional local repair baseline with role-oriented internals, constrained edits, temporary-worktree execution, semantic rollback/retry, independent candidate review, bounded semantic revisions, isolated repeatable evaluation, holdout validation, and traceability. It remains intended for trusted Python projects: a Git worktree protects the selected checkout from repair mutations but is not a security sandbox, and container isolation is still future work.

@@ -82,16 +82,16 @@ class WorkspaceTransaction:
         )
         return self.active
 
-    def checkpoint(self, iteration: int) -> None:
+    def checkpoint(self, iteration: int, kind: str = "iteration") -> str | None:
         active = self._require_active()
         if not active.isolated:
-            return
+            return None
         add = self._git(active.workspace, ["add", "-A", "--", "."])
         if add.returncode != 0:
             raise RuntimeError(add.stderr.strip() or "failed to stage worktree checkpoint")
         staged = self._git(active.workspace, ["diff", "--cached", "--quiet", "--", "."])
         if staged.returncode == 0:
-            return
+            return self._head(active.workspace)
         if staged.returncode != 1:
             raise RuntimeError(staged.stderr.strip() or "failed to inspect worktree checkpoint")
         commit = self._git(
@@ -105,11 +105,12 @@ class WorkspaceTransaction:
                 "--no-verify",
                 "--no-gpg-sign",
                 "-m",
-                f"pyfixagent: checkpoint iteration {iteration}",
+                f"pyfixagent: checkpoint {kind} {iteration}",
             ],
         )
         if commit.returncode != 0:
             raise RuntimeError(commit.stderr.strip() or "failed to create worktree checkpoint")
+        return self._head(active.workspace)
 
     def rollback(self) -> None:
         active = self._require_active()
@@ -134,6 +135,11 @@ class WorkspaceTransaction:
         if completed.returncode != 0:
             raise RuntimeError(completed.stderr.strip() or "failed to export final patch")
         return completed.stdout
+
+    @classmethod
+    def _head(cls, workspace: Path) -> str | None:
+        completed = cls._git(workspace, ["rev-parse", "HEAD"])
+        return completed.stdout.strip() if completed.returncode == 0 else None
 
     def close(self) -> None:
         active = self.active

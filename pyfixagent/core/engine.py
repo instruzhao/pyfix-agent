@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import asdict
 import time
 
 from pyfixagent.agent.prompts import SYSTEM_PROMPT
@@ -15,7 +16,12 @@ from pyfixagent.repair.evaluator import AttemptEvaluator
 from pyfixagent.repair.model_client import ModelClient, ModelGenerationError
 from pyfixagent.repair.prompting import PromptBuilder
 from pyfixagent.repair.retry_policy import RetryPolicy
-from pyfixagent.schemas import AgentResult
+from pyfixagent.review.context import ReviewContextProvider
+from pyfixagent.review.contracts import ReviewDecision, ReviewRequest
+from pyfixagent.review.feedback import build_review_feedback
+from pyfixagent.review.policy import ReviewPolicy
+from pyfixagent.review.reviewer import SemanticReviewer
+from pyfixagent.schemas import AgentResult, ReviewRecord
 from pyfixagent.trace import collect_environment, final_summary
 
 
@@ -34,6 +40,11 @@ class RepairEngine:
         backends: dict[str, EditBackend],
         evaluator: AttemptEvaluator,
         retry_policy: RetryPolicy,
+        semantic_review_enabled: bool,
+        review_context_provider: ReviewContextProvider,
+        semantic_reviewer: SemanticReviewer,
+        review_policy: ReviewPolicy,
+        review_max_feedback_chars: int,
     ):
         self.workspace_session = workspace_session
         self.test_runner = test_runner
@@ -44,6 +55,11 @@ class RepairEngine:
         self.backends = backends
         self.evaluator = evaluator
         self.retry_policy = retry_policy
+        self.semantic_review_enabled = semantic_review_enabled
+        self.review_context_provider = review_context_provider
+        self.semantic_reviewer = semantic_reviewer
+        self.review_policy = review_policy
+        self.review_max_feedback_chars = review_max_feedback_chars
 
     def run(self, request: RepairRequest) -> AgentResult:
         state = AgentState(
@@ -69,10 +85,16 @@ class RepairEngine:
             if before.success:
                 print("[agent] tests already pass; no patch needed.")
                 state.success = True
+                state.visible_success = True
+                state.acceptance_status = "not_run"
                 return self._to_result(state, patch_applied)
 
             feedback = "No previous attempt."
             current_test_output = state.test_output_before
+            active_review_feedback = ""
+            active_review_ids: tuple[str, ...] = ()
+            trigger = "pytest_failure"
+            review_index = 0
             for iteration in range(1, request.max_iterations + 1):
                 started_at = time.perf_counter()
                 patch_path = self.workspace_session.patch_path(iteration)
@@ -127,6 +149,8 @@ class RepairEngine:
                     record.context_expansion_level = context_plan.level
                     decision = self.retry_policy.after_model_error()
                     record.retry_reason = decision.reason
+                    record.trigger = trigger
+                    record.review_feedback_ids = list(active_review_ids)
                     state.iterations.append(record)
                     if not decision.continue_repair:
                         return self._to_result(state, patch_applied)
@@ -161,6 +185,8 @@ class RepairEngine:
                     decision = self.retry_policy.after_apply(backend_result)
                     record.context_expansion_level = context_plan.level
                     record.retry_reason = decision.reason
+                    record.trigger = trigger
+                    record.review_feedback_ids = list(active_review_ids)
                     state.iterations.append(record)
                     feedback = (
                         self.prompt_builder.mode_switch_failure(backend_result, decision.next_mode)
@@ -197,14 +223,115 @@ class RepairEngine:
                     success=state.success,
                 )
                 if state.success:
-                    self.workspace_session.checkpoint(iteration)
+                    state.visible_success = True
+                    checkpoint = self.workspace_session.checkpoint(iteration, kind="visible_candidate")
                     record.context_expansion_level = context_plan.level
+                    record.trigger = trigger
+                    record.review_feedback_ids = list(active_review_ids)
+                    record.candidate_checkpoint = checkpoint
                     record.workspace_action = (
-                        "checkpointed_success"
+                        (
+                            "checkpointed_visible_candidate"
+                            if self.semantic_review_enabled
+                            else "checkpointed_success"
+                        )
                         if state.workspace_strategy == "temporary_git_worktree"
                         else "kept_in_place"
                     )
                     state.iterations.append(record)
+                    if not self.semantic_review_enabled:
+                        state.acceptance_status = "disabled"
+                        return self._to_result(state, patch_applied)
+
+                    review_index += 1
+                    candidate_diff = self.workspace_session.candidate_diff()
+                    review_context = self.review_context_provider.build(state.workspace, candidate_diff)
+                    print(f"[agent] semantic review {review_index}: reviewing visible-pass candidate...")
+                    execution = self.semantic_reviewer.review(
+                        ReviewRequest(
+                            task=request.task,
+                            candidate_diff=candidate_diff,
+                            visible_test_output=after.output,
+                            context=review_context,
+                            review_index=review_index,
+                        ),
+                        state.workspace,
+                    )
+                    error = execution.model_error or execution.parse_error
+                    structural_cues = tuple(
+                        cue for cue in review_context.metadata.get("structural_risk_cues", [])
+                        if cue.get("id")
+                    )
+                    review_decision = self.review_policy.decide(
+                        execution.outcome,
+                        state.semantic_revisions_used,
+                        error=error,
+                        structural_cue_categories=tuple(
+                            str(cue.get("category"))
+                            for cue in structural_cues
+                            if cue.get("category")
+                        ),
+                        structural_cue_ids=tuple(str(cue["id"]) for cue in structural_cues),
+                    )
+                    if review_decision.action == "revise" and iteration >= request.max_iterations:
+                        review_decision = ReviewDecision(
+                            "needs_review",
+                            "edit iteration budget exhausted",
+                            review_decision.blocking_risk_ids,
+                        )
+                    state.reviews.append(
+                        ReviewRecord(
+                            review_index=review_index,
+                            based_on_iteration=iteration,
+                            prompt=execution.prompt,
+                            raw_model_output=execution.raw_output,
+                            parsed_outcome=(
+                                asdict(execution.outcome) if execution.outcome is not None else None
+                            ),
+                            parse_error=execution.parse_error,
+                            model_error=execution.model_error,
+                            model_calls=execution.model_calls,
+                            context=execution.context,
+                            policy_action=review_decision.action,
+                            policy_reason=review_decision.reason,
+                            blocking_risk_ids=list(review_decision.blocking_risk_ids),
+                            candidate_checkpoint=checkpoint,
+                        )
+                    )
+                    if review_decision.action in {"accept", "accept_with_warnings"}:
+                        state.acceptance_status = (
+                            "accepted_with_warnings"
+                            if review_decision.action == "accept_with_warnings"
+                            else "accepted"
+                        )
+                        state.success = True
+                        state.error = None
+                        return self._to_result(state, patch_applied)
+                    if review_decision.action == "revise" and execution.outcome is not None:
+                        active_review_feedback, active_review_ids = build_review_feedback(
+                            execution.outcome,
+                            self.review_max_feedback_chars,
+                            review_decision.blocking_risk_ids,
+                            structural_cues,
+                        )
+                        feedback = active_review_feedback
+                        current_test_output = after.output
+                        trigger = "semantic_revision"
+                        state.semantic_revisions_used += 1
+                        state.success = False
+                        state.acceptance_status = "revising"
+                        print(
+                            f"[agent] semantic review {review_index}: blocking risks found; "
+                            "requesting one bounded revision."
+                        )
+                        continue
+                    state.success = False
+                    state.acceptance_status = (
+                        "review_error" if error else "abstained"
+                        if execution.outcome and execution.outcome.verdict == "abstain"
+                        else "rejected"
+                    )
+                    state.error = None
                     return self._to_result(state, patch_applied)
 
                 failure_type = str((record.iteration_result or {}).get("failure_type") or "unknown")
@@ -225,8 +352,10 @@ class RepairEngine:
                     self.context_policy.expand(decision.reason)
                 record.context_expansion_level = context_plan.level
                 record.retry_reason = decision.reason
+                record.trigger = trigger
+                record.review_feedback_ids = list(active_review_ids)
                 state.iterations.append(record)
-                feedback = self.prompt_builder.semantic_test_failure(
+                test_feedback = self.prompt_builder.semantic_test_failure(
                     mode=mode,
                     failure_type=failure_type,
                     delta=record.failure_delta or {},
@@ -234,11 +363,21 @@ class RepairEngine:
                     rolled_back=rolled_back,
                     context_expansion_level=self.context_policy.level,
                 )
+                feedback = (
+                    f"{active_review_feedback}\n\n{test_feedback}"
+                    if active_review_feedback
+                    else test_feedback
+                )
                 print(
                     f"[agent] iteration {iteration}/{request.max_iterations}: "
                     "tests still failed; retrying if possible."
                 )
 
+            if state.visible_success and self.semantic_review_enabled:
+                state.success = False
+                state.acceptance_status = "rejected"
+                state.error = None
+                return self._to_result(state, patch_applied)
             if state.error is None:
                 state.error = "agent did not produce a successful patch"
             state.error = f"{state.error}; reached max_iterations={request.max_iterations}"
@@ -260,6 +399,9 @@ class RepairEngine:
                 state.patch = final_patch
             if final_patch_path is not None:
                 state.final_patch_path = str(final_patch_path)
+            if state.visible_success:
+                state.candidate_patch = final_patch
+                state.candidate_patch_path = str(final_patch_path or "")
         result = AgentResult(
             task=state.task,
             workspace=str(state.original_workspace or state.workspace),
@@ -275,6 +417,12 @@ class RepairEngine:
             environment=collect_environment(state.workspace),
             workspace_state=state.workspace_state,
             final_patch_path=state.final_patch_path,
+            visible_success=state.visible_success,
+            acceptance_status=state.acceptance_status,
+            candidate_patch=state.candidate_patch,
+            candidate_patch_path=state.candidate_patch_path,
+            reviews=state.reviews,
+            semantic_revisions_used=state.semantic_revisions_used,
         )
         result.final_summary = final_summary(result)
         return result

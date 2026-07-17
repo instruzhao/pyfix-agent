@@ -36,6 +36,26 @@ class IterationRecord:
     workspace_action: str | None = None
     retry_reason: str | None = None
     context_expansion_level: int = 0
+    trigger: str = "pytest_failure"
+    review_feedback_ids: list[str] | None = None
+    candidate_checkpoint: str | None = None
+
+
+@dataclass
+class ReviewRecord:
+    review_index: int
+    based_on_iteration: int
+    prompt: str
+    raw_model_output: str
+    parsed_outcome: dict | None
+    parse_error: str | None
+    model_error: str | None
+    model_calls: list[dict]
+    context: dict
+    policy_action: str
+    policy_reason: str
+    blocking_risk_ids: list[str]
+    candidate_checkpoint: str | None = None
 
 
 @dataclass
@@ -53,6 +73,12 @@ class AgentResult:
     error: str | None = None
     environment: dict | None = None
     final_summary: dict | None = None
-    trace_schema_version: str = "1.1"
+    trace_schema_version: str = "1.2"
     workspace_state: dict | None = None
     final_patch_path: str = ""
+    visible_success: bool = False
+    acceptance_status: str = "not_run"
+    candidate_patch: str = ""
+    candidate_patch_path: str = ""
+    reviews: list[ReviewRecord] | None = None
+    semantic_revisions_used: int = 0

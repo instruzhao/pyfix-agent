@@ -61,6 +61,7 @@ def main(argv: list[str] | None = None) -> int:
     load_dotenv_file(project_root / ".env")
     config = load_config(resolve(project_root, args.config))
     model_config = config.get("model", {})
+    review_config = config.get("semantic_review", {})
 
     def model_factory() -> BaseModel:
         api_key_env = model_config.get("api_key_env")
@@ -91,6 +92,12 @@ def main(argv: list[str] | None = None) -> int:
         max_changed_files=int(config.get("safety", {}).get("max_changed_files", 8)),
         max_changed_lines=int(config.get("safety", {}).get("max_changed_lines", 400)),
         test_commands=normalize_test_commands(config.get("test", {}).get("commands")),
+        semantic_review_enabled=bool(review_config.get("enabled", True)),
+        semantic_review_max_revisions=int(review_config.get("max_semantic_revisions", 2)),
+        semantic_review_parse_retries=int(review_config.get("max_parse_retries", 1)),
+        semantic_review_max_context_chars=int(review_config.get("max_context_chars", 16000)),
+        semantic_review_max_feedback_chars=int(review_config.get("max_feedback_chars", 3000)),
+        semantic_review_max_risks=int(review_config.get("max_risks", 5)),
     )
     output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / "report.json").write_text(

@@ -31,6 +31,12 @@ def run_benchmark(
     max_changed_files: int = 8,
     max_changed_lines: int = 400,
     test_commands: tuple[tuple[str, ...], ...] | None = None,
+    semantic_review_enabled: bool = False,
+    semantic_review_max_revisions: int = 1,
+    semantic_review_parse_retries: int = 1,
+    semantic_review_max_context_chars: int = 16000,
+    semantic_review_max_feedback_chars: int = 3000,
+    semantic_review_max_risks: int = 5,
 ) -> dict:
     if repeat < 1:
         raise ValueError("repeat must be at least 1")
@@ -65,10 +71,17 @@ def run_benchmark(
                         max_changed_lines=max_changed_lines,
                         isolate_workspace=True,
                         test_commands=test_commands,
+                        semantic_review_enabled=semantic_review_enabled,
+                        semantic_review_max_revisions=semantic_review_max_revisions,
+                        semantic_review_parse_retries=semantic_review_parse_retries,
+                        semantic_review_max_context_chars=semantic_review_max_context_chars,
+                        semantic_review_max_feedback_chars=semantic_review_max_feedback_chars,
+                        semantic_review_max_risks=semantic_review_max_risks,
                     )
                     result = agent.run(case.agent_task)
-                    if result.success and result.patch:
-                        _apply_exported_patch(workspace, result.patch)
+                    candidate_patch = result.candidate_patch or result.patch
+                    if result.visible_success and candidate_patch:
+                        _apply_exported_patch(workspace, candidate_patch)
                     holdout = holdout_evaluator.run(case, workspace)
                     trace_path = save_trace(result, trace_dir)
                     runs.append(
@@ -98,7 +111,7 @@ def run_benchmark(
                             )
 
     return {
-        "schema_version": 2,
+        "schema_version": 3,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "summary": summarize_runs(runs),
         "runs": runs,
@@ -112,12 +125,33 @@ def build_run_record(case, strategy, repetition, result, holdout, trace_path, wo
     output_tokens = sum(
         int((record.model_call or {}).get("output_tokens") or 0) for record in result.iterations
     )
-    visible_success = bool(result.success)
+    review_input_tokens = sum(
+        int(call.get("input_tokens") or 0)
+        for review in (result.reviews or [])
+        for call in review.model_calls
+    )
+    review_output_tokens = sum(
+        int(call.get("output_tokens") or 0)
+        for review in (result.reviews or [])
+        for call in review.model_calls
+    )
+    input_tokens += review_input_tokens
+    output_tokens += review_output_tokens
+    visible_success = bool(result.visible_success)
     holdout_success = holdout.get("success")
-    success = visible_success and holdout_success is not False
+    candidate_success = visible_success and holdout_success is not False
+    success = bool(result.success) and holdout_success is not False
     last_result = result.iterations[-1].iteration_result if result.iterations else None
-    if visible_success and holdout_success is False:
-        failure_type = "holdout_failed"
+    if (
+        result.success
+        and result.acceptance_status in {"accepted", "accepted_with_warnings"}
+        and holdout_success is False
+    ):
+        failure_type = "false_accept"
+    elif not result.success and visible_success and holdout_success is True:
+        failure_type = "false_reject"
+    elif visible_success and holdout_success is False:
+        failure_type = "semantic_rejected" if result.acceptance_status == "rejected" else "holdout_failed"
     else:
         failure_type = (last_result or {}).get("failure_type") if last_result else None
     return {
@@ -125,7 +159,10 @@ def build_run_record(case, strategy, repetition, result, holdout, trace_path, wo
         "strategy": strategy,
         "repetition": repetition,
         "success": success,
+        "candidate_success": candidate_success,
         "visible_success": visible_success,
+        "agent_accepted": bool(result.success),
+        "acceptance_status": result.acceptance_status,
         "holdout_success": holdout_success,
         "holdout_exit_code": holdout.get("exit_code"),
         "holdout_output": holdout.get("output", ""),
@@ -152,11 +189,16 @@ def build_run_record(case, strategy, repetition, result, holdout, trace_path, wo
         ),
         "input_tokens": input_tokens,
         "output_tokens": output_tokens,
+        "review_input_tokens": review_input_tokens,
+        "review_output_tokens": review_output_tokens,
+        "review_count": len(result.reviews or []),
+        "semantic_revisions_used": result.semantic_revisions_used,
         "failure_type": failure_type,
         "trace_path": str(trace_path),
         "workspace": str(workspace),
         "workspace_strategy": result.workspace_strategy,
         "final_patch_path": result.final_patch_path,
+        "candidate_patch_path": result.candidate_patch_path,
     }
 
 

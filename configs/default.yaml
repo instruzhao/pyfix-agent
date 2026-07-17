@@ -37,6 +37,14 @@ context:
   fallback_to_full_context: true
   include_tests: true
 
+semantic_review:
+  enabled: true
+  max_semantic_revisions: 2
+  max_parse_retries: 1
+  max_context_chars: 16000
+  max_feedback_chars: 3000
+  max_risks: 5
+
 agent:
   task: "Fix the failing tests in workspaces/sklearn_iris_tree_project. Only modify files under ml_iris_tree/. Do not modify tests/. Use sklearn.datasets.load_iris, train a DecisionTreeClassifier, compute multiclass metrics, and save a matplotlib Agg confusion matrix image."
   initial_mode: replacement
