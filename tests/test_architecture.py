@@ -219,5 +219,22 @@ def test_default_agent_assembles_one_shared_repository_context_service(tmp_path)
     assert repair_expander is review_expander
 
 
+def test_default_agent_can_use_a_separate_bounded_review_model(tmp_path):
+    workspace = init_git_workspace(tmp_path)
+    repair_model = MockModel([])
+    review_model = MockModel([])
+    agent = DefaultAgent(
+        model=repair_model,
+        review_model=review_model,
+        sandbox=LocalSandbox(workspace),
+        patch_output_dir=tmp_path / "patches",
+    )
+
+    engine = agent._build_engine()
+
+    assert engine.model_client.model is repair_model
+    assert engine.semantic_reviewer.model_client.model is review_model
+
+
 def test_benchmark_module_remains_a_compatibility_facade():
     assert facade_run_benchmark is modular_run_benchmark

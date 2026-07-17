@@ -55,6 +55,8 @@ class DefaultAgent:
         semantic_review_max_context_chars: int = 16000,
         semantic_review_max_feedback_chars: int = 3000,
         semantic_review_max_risks: int = 5,
+        semantic_review_max_contracts: int = 3,
+        review_model: BaseModel | None = None,
         repository_context_enabled: bool = False,
         repository_cache_dir: Path | None = None,
         repository_max_files: int = 2000,
@@ -90,6 +92,8 @@ class DefaultAgent:
         self.semantic_review_max_context_chars = max(1000, semantic_review_max_context_chars)
         self.semantic_review_max_feedback_chars = max(200, semantic_review_max_feedback_chars)
         self.semantic_review_max_risks = max(1, semantic_review_max_risks)
+        self.semantic_review_max_contracts = max(1, semantic_review_max_contracts)
+        self.review_model = review_model
         self.repository_context_enabled = repository_context_enabled
         self.repository_cache_dir = (
             Path(repository_cache_dir)
@@ -118,6 +122,7 @@ class DefaultAgent:
 
     def _build_engine(self) -> RepairEngine:
         model_client = ModelClient(self.model)
+        review_model_client = ModelClient(self.review_model or self.model)
         repository_expander = self._build_repository_expander()
         return RepairEngine(
             workspace_session=WorkspaceSession(
@@ -151,10 +156,11 @@ class DefaultAgent:
                 repository_expander=repository_expander,
             ),
             semantic_reviewer=SemanticReviewer(
-                model_client,
+                review_model_client,
                 ReviewParser(
                     max_risks=self.semantic_review_max_risks,
                     max_text_chars=self.semantic_review_max_feedback_chars,
+                    max_contracts=self.semantic_review_max_contracts,
                 ),
                 max_parse_retries=self.semantic_review_parse_retries,
             ),

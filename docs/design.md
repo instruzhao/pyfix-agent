@@ -89,9 +89,19 @@ The component boundaries use small data contracts (`RepairRequest`, `ContextBund
 
 A visible pytest pass creates a candidate checkpoint rather than immediately proving final success. `ReviewContextProvider` builds changed-file and visible-test context, `SemanticReviewer` produces strict JSON, `ReviewParser` and evidence validation normalize it, and `ReviewPolicy` alone chooses accept, revise, or `needs_review`.
 
-`StructuralRiskScanner` emits deterministic code-shape questions rather than business rules. A delimiter composition cue disappears when the candidate normalizes an already-present boundary marker; a numeric tie-breaking cue disappears when quantization selects an explicit rounding policy. Evidence-based reviewer warnings matching a cue can trigger a bounded revision even when the model labels them non-blocking.
+`StructuralRiskScanner` emits deterministic code-shape questions rather than hidden business rules. A delimiter composition cue disappears when the candidate normalizes an already-present boundary marker; a numeric tie-breaking cue disappears when quantization selects an explicit rounding policy. In v0.6.2, an explicit docstring positive-input cue disappears only when every declared parameter visibly rejects non-positive values. Evidence-based reviewer warnings matching a cue can trigger a bounded revision even when the model labels them non-blocking.
 
 Reviewer output never edits the workspace and is not copied raw into the repair prompt. `ReviewFeedbackBuilder` renders only validated risks and counterexample properties. A revision that breaks visible tests is rolled back to the previous visible-pass checkpoint. The final result distinguishes `visible_success` from semantic acceptance and exports the last candidate even when strict review ends in `needs_review`.
+
+## v0.6.2 Evaluation and Privacy Boundaries
+
+Benchmark manifest schema 3 keeps evaluation knowledge outside the agent boundary. Tags, required/relevant context paths, and distractors are loaded into `BenchmarkCase` for runner-side scoring, but `agent_task` remains generated only from allowed edit roots. Repository-on/off variants use separate fixture copies and are keyed independently for Success@1 and Pass@k.
+
+Benchmark report schema 4 treats repair, review, retrieval, and indexing as distinct measurements. It records repair/review tokens and model duration separately, aggregates repository cache/build timing, and scores selected paths only after the agent closes. Paired A/B results compare matching case, strategy, and repetition identities.
+
+The CLI assembles a separate reviewer model instance from the same provider configuration with an independent output and thinking budget. `SemanticReviewer` still depends only on `ModelClient`; the engine does not know provider limits. Direct library callers can omit the reviewer model and preserve shared-model behavior.
+
+Trace privacy is an output concern owned by `TraceRedactor`, not by repair orchestration. `paths` replaces known absolute roots while retaining prompts and diffs. `safe` replaces source-bearing strings with length and SHA-256 markers while preserving normalized decisions, counts, timings, and token usage. Neither mode changes the in-memory result used by the runner or the external holdout boundary.
 
 ## Repair Modes
 

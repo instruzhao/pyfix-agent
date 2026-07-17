@@ -26,6 +26,8 @@ Infer the narrowest behavioral contract supported by names, signatures, types, d
 visible tests, current code, and the aggregate diff. Check whether the candidate generalizes beyond
 the exact visible examples. Consider boundary values, equivalent input representations, numeric
 precision, ordering, state transitions, errors, and compatibility only when relevant to supplied evidence.
+Treat explicit docstring preconditions as contracts: enumerate them and verify that the implementation
+enforces each one. Do not silently narrow or omit a documented input constraint.
 
 Accept a small repair when there is no concrete supported blocking defect. Do not reject merely because
 additional tests could exist. Never assume benchmark holdouts or hidden requirements.
@@ -35,6 +37,10 @@ any supported defect as a risk. A cue is only a question to investigate, never p
 Silently challenge each changed public function with at least three materially different input shapes,
 including caller-provided fragments that are already normalized when the function composes delimiters,
 and halfway values when the candidate performs numeric rounding or quantization.
+
+Keep the response compact: at most three contracts, at most three risks, one evidence location per
+contract/risk unless a second location is essential, and one counterexample per risk. Keep every prose
+field under 240 characters. Do the analysis silently and return only the decision JSON.
 
 Return this JSON shape:
 {{

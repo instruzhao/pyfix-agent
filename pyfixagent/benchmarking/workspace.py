@@ -17,14 +17,27 @@ class IsolatedWorkspaceFactory:
         self.project_root = Path(project_root)
         self.output_dir = Path(output_dir).resolve()
 
-    def prepare(self, case: BenchmarkCase, strategy: str, repetition: int) -> Path:
+    def prepare(
+        self,
+        case: BenchmarkCase,
+        strategy: str,
+        repetition: int,
+        variant: str = "default",
+    ) -> Path:
         if case.fixture is None:
             if case.workspace is None:
                 raise ValueError(f"case {case.case_id} has no fixture or workspace")
             self._run_reset(case)
             return case.workspace
 
-        workspace = self.output_dir / "workspaces" / case.case_id / strategy / f"run_{repetition}"
+        workspace = (
+            self.output_dir
+            / "workspaces"
+            / case.case_id
+            / strategy
+            / variant
+            / f"run_{repetition}"
+        )
         self._safe_remove(workspace)
         workspace.parent.mkdir(parents=True, exist_ok=True)
         shutil.copytree(

@@ -1,4 +1,4 @@
-schema_version: 2
+schema_version: 3
 
 cases:
   - id: demo_project
@@ -79,3 +79,84 @@ cases:
     fixture: benchmarks/fixtures/withdrawal_validation
     holdout: benchmarks/holdouts/withdrawal_validation
     allowed_paths: [src]
+
+  - id: multifile_shipping
+    fixture: benchmarks/fixtures/multifile_shipping
+    holdout: benchmarks/holdouts/multifile_shipping
+    allowed_paths: [src]
+    tags: [multifile, v0.6.2]
+    context_required_paths: [src/checkout/policy.py]
+    context_relevant_paths: [tests/test_visible.py, src/checkout/api.py, src/checkout/service.py, src/checkout/policy.py]
+    context_distractor_paths: [src/checkout/audit.py, src/checkout/forecast.py]
+
+  - id: multifile_flags
+    fixture: benchmarks/fixtures/multifile_flags
+    holdout: benchmarks/holdouts/multifile_flags
+    allowed_paths: [src]
+    tags: [multifile, v0.6.2]
+    context_required_paths: [src/flags/resolver.py]
+    context_relevant_paths: [tests/test_visible.py, src/flags/api.py, src/flags/resolver.py, src/flags/coercion.py]
+    context_distractor_paths: [src/flags/cache.py, src/flags/reporting.py]
+
+  - id: multifile_inventory
+    fixture: benchmarks/fixtures/multifile_inventory
+    holdout: benchmarks/holdouts/multifile_inventory
+    allowed_paths: [src]
+    tags: [multifile, v0.6.2]
+    context_required_paths: [src/inventory/ledger.py]
+    context_relevant_paths: [tests/test_visible.py, src/inventory/api.py, src/inventory/service.py, src/inventory/ledger.py]
+    context_distractor_paths: [src/inventory/events.py, src/inventory/reports.py]
+
+  - id: multifile_permissions
+    fixture: benchmarks/fixtures/multifile_permissions
+    holdout: benchmarks/holdouts/multifile_permissions
+    allowed_paths: [src]
+    tags: [multifile, v0.6.2]
+    context_required_paths: [src/auth/evaluator.py, src/auth/hierarchy.py]
+    context_relevant_paths: [tests/test_visible.py, src/auth/api.py, src/auth/evaluator.py, src/auth/hierarchy.py]
+    context_distractor_paths: [src/auth/audit.py, src/auth/ui.py]
+
+  - id: multifile_booking
+    fixture: benchmarks/fixtures/multifile_booking
+    holdout: benchmarks/holdouts/multifile_booking
+    allowed_paths: [src]
+    tags: [multifile, v0.6.2]
+    context_required_paths: [src/booking/intervals.py]
+    context_relevant_paths: [tests/test_visible.py, src/booking/api.py, src/booking/service.py, src/booking/intervals.py]
+    context_distractor_paths: [src/booking/export.py, src/booking/reminders.py]
+
+  - id: multifile_retry
+    fixture: benchmarks/fixtures/multifile_retry
+    holdout: benchmarks/holdouts/multifile_retry
+    allowed_paths: [src]
+    tags: [multifile, v0.6.2]
+    context_required_paths: [src/retry/backoff.py]
+    context_relevant_paths: [tests/test_visible.py, src/retry/api.py, src/retry/scheduler.py, src/retry/backoff.py]
+    context_distractor_paths: [src/retry/jitter.py, src/retry/metrics.py]
+
+  - id: multifile_tiers
+    fixture: benchmarks/fixtures/multifile_tiers
+    holdout: benchmarks/holdouts/multifile_tiers
+    allowed_paths: [src]
+    tags: [multifile, v0.6.2]
+    context_required_paths: [src/pricing/tiers.py]
+    context_relevant_paths: [tests/test_visible.py, src/pricing/api.py, src/pricing/service.py, src/pricing/tiers.py]
+    context_distractor_paths: [src/pricing/catalog.py, src/pricing/promotions.py]
+
+  - id: multifile_events
+    fixture: benchmarks/fixtures/multifile_events
+    holdout: benchmarks/holdouts/multifile_events
+    allowed_paths: [src]
+    tags: [multifile, v0.6.2]
+    context_required_paths: [src/events/processor.py]
+    context_relevant_paths: [tests/test_visible.py, src/events/api.py, src/events/processor.py, src/events/identity.py]
+    context_distractor_paths: [src/events/metrics.py, src/events/serialization.py]
+
+  - id: multifile_reexport_tax
+    fixture: benchmarks/fixtures/multifile_reexport_tax
+    holdout: benchmarks/holdouts/multifile_reexport_tax
+    allowed_paths: [src]
+    tags: [multifile, reexport, v0.6.2]
+    context_required_paths: [src/orders/service.py]
+    context_relevant_paths: [tests/test_visible.py, src/orders/__init__.py, src/orders/api.py, src/orders/service.py]
+    context_distractor_paths: [src/orders/archive.py, src/orders/notifications.py]

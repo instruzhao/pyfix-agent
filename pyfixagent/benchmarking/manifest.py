@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import subprocess
 import sys
 import tempfile
@@ -15,8 +15,8 @@ def load_manifest(path: str | Path, project_root: str | Path) -> list[BenchmarkC
     root = Path(project_root).resolve()
     data = load_config(Path(path))
     schema_version = data.get("schema_version")
-    if schema_version not in {1, 2}:
-        raise ValueError("benchmark manifest schema_version must be 1 or 2")
+    if schema_version not in {1, 2, 3}:
+        raise ValueError("benchmark manifest schema_version must be 1, 2, or 3")
     raw_cases = data.get("cases")
     if not isinstance(raw_cases, list) or not raw_cases:
         raise ValueError("benchmark manifest must contain a non-empty cases list")
@@ -37,10 +37,26 @@ def load_manifest(path: str | Path, project_root: str | Path) -> list[BenchmarkC
         if mode not in {"replacement", "patch"}:
             raise ValueError(f"case {case_id} contains an unsupported mode")
         allowed_paths = tuple(str(item).strip("/\\") for item in raw.get("allowed_paths", []))
+        tags = _string_tuple(raw.get("tags", []), f"case {case_id} tags")
+        required_paths = _path_tuple(
+            raw.get("context_required_paths", []), f"case {case_id} context_required_paths"
+        )
+        relevant_paths = _path_tuple(
+            raw.get("context_relevant_paths", []), f"case {case_id} context_relevant_paths"
+        )
+        distractor_paths = _path_tuple(
+            raw.get("context_distractor_paths", []), f"case {case_id} context_distractor_paths"
+        )
+        if schema_version < 3 and (tags or required_paths or relevant_paths or distractor_paths):
+            raise ValueError(f"case {case_id} context metadata requires manifest schema v3")
+        if relevant_paths and not set(required_paths).issubset(relevant_paths):
+            raise ValueError(f"case {case_id} required context paths must also be relevant")
+        if set(relevant_paths) & set(distractor_paths):
+            raise ValueError(f"case {case_id} context paths cannot be both relevant and distractors")
 
-        if schema_version == 2:
+        if schema_version in {2, 3}:
             if "task" in raw:
-                raise ValueError(f"case {case_id} must not contain task hints in schema v2")
+                raise ValueError(f"case {case_id} must not contain task hints in schema v2+")
             cases.append(
                 BenchmarkCase(
                     case_id=case_id,
@@ -50,6 +66,10 @@ def load_manifest(path: str | Path, project_root: str | Path) -> list[BenchmarkC
                     max_iterations=max(1, int(raw.get("max_iterations", 5))),
                     fixture=existing_directory(root, raw.get("fixture"), f"case {case_id} fixture"),
                     holdout_path=existing_directory(root, raw.get("holdout"), f"case {case_id} holdout"),
+                    tags=tags,
+                    context_required_paths=required_paths,
+                    context_relevant_paths=relevant_paths,
+                    context_distractor_paths=distractor_paths,
                 )
             )
             continue
@@ -92,6 +112,17 @@ def validate_benchmark_cases(cases: list[BenchmarkCase], timeout: int = 60) -> l
             elif is_within(case.holdout_path, case.fixture):
                 reasons.append("holdout tests must be outside the agent fixture")
 
+            for expected in (
+                *case.context_required_paths,
+                *case.context_relevant_paths,
+                *case.context_distractor_paths,
+            ):
+                candidate = case.fixture / expected
+                if not is_within(candidate, case.fixture):
+                    reasons.append(f"context expectation path escapes fixture: {expected}")
+                elif not candidate.is_file():
+                    reasons.append(f"context expectation path is missing: {expected}")
+
             env = os.environ.copy()
             env["PYTHONDONTWRITEBYTECODE"] = "1"
             with tempfile.TemporaryDirectory(prefix=f"pyfixagent-{case.case_id}-") as temp_dir:
@@ -132,3 +163,27 @@ def validate_benchmark_cases(cases: list[BenchmarkCase], timeout: int = 60) -> l
             }
         )
     return results
+
+
+def _string_tuple(value, name: str) -> tuple[str, ...]:
+    if not isinstance(value, list) or not all(isinstance(item, str) and item.strip() for item in value):
+        if value == []:
+            return ()
+        raise ValueError(f"{name} must be a string list")
+    return tuple(dict.fromkeys(item.strip() for item in value))
+
+
+def _path_tuple(value, name: str) -> tuple[str, ...]:
+    paths: list[str] = []
+    for item in _string_tuple(value, name):
+        normalized = item.replace("\\", "/").rstrip("/")
+        posix_path = PurePosixPath(normalized)
+        if (
+            not normalized
+            or posix_path.is_absolute()
+            or Path(normalized).is_absolute()
+            or ".." in posix_path.parts
+        ):
+            raise ValueError(f"{name} must contain workspace-relative paths")
+        paths.append(normalized)
+    return tuple(paths)

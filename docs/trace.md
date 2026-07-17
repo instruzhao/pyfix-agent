@@ -4,7 +4,7 @@ PyFixAgent writes structured JSON traces so a repair run can be inspected withou
 
 ## Top-level Fields
 
-`trace_schema_version` identifies the trace contract. v0.3–v0.4 traces use schema `1.0`; v0.5 traces use schema `1.1`.
+`trace_schema_version` identifies the trace contract. v0.3–v0.4 traces use schema `1.0`; v0.5 uses `1.1`; v0.6.0, v0.6.1, and v0.6.2 use `1.2`, `1.3`, and `1.4` respectively.
 
 `task` records the natural-language task given to the agent.
 
@@ -80,6 +80,8 @@ Trace schema 1.2 adds `visible_success`, `acceptance_status`, `candidate_patch`,
 
 Trace schema 1.3 adds optional static repository context metadata. Existing fields are unchanged, and runs constructed with repository context disabled retain the previous context shape.
 
+Trace schema 1.4 adds repository snapshot/build/total timing and top-level `trace_redaction`. Redaction mode `none` records the historical payload, `paths` replaces known absolute roots, and `safe` replaces source-bearing strings with deterministic hash/length markers. `redacted_fields` identifies which field names were transformed. Redaction happens only while serializing the trace and does not alter the in-memory repair result or benchmark evaluation.
+
 ## Model Output
 
 `model_output` records how the model response was interpreted.
@@ -104,7 +106,7 @@ It includes method, success flag, command/check information, errors, and the gen
 
 ## Model Call
 
-`model_call` records provider/model metadata and call duration when available. Real API keys are not stored intentionally, but traces should still be checked before publishing.
+`model_call` records provider/model metadata, call duration, and configured thinking budget when available. Repair and review records retain their own model-call entries. Real API keys are not stored intentionally, but traces should still be checked before publishing.
 
 ## Trace Summary Script
 

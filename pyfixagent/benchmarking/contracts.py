@@ -14,6 +14,10 @@ class BenchmarkCase:
     workspace: Path | None = None
     reset_command: tuple[str, ...] = ()
     task: str | None = None
+    tags: tuple[str, ...] = ()
+    context_required_paths: tuple[str, ...] = ()
+    context_relevant_paths: tuple[str, ...] = ()
+    context_distractor_paths: tuple[str, ...] = ()
 
     @property
     def agent_task(self) -> str:
