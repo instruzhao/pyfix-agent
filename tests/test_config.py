@@ -28,6 +28,15 @@ def test_default_config_matches_documented_defaults():
         "thinking_budget": 4096,
     }
     assert runtime["config"]["model"]["system_prompt_as_user"] is True
+    assert runtime["semantic_review_enabled"] is True
+    assert runtime["semantic_review_max_revisions"] == 2
+
+
+def test_cli_can_disable_semantic_review():
+    project_root = Path(__file__).resolve().parents[1]
+    runtime = resolve_runtime_config(project_root, parse_args(["--no-semantic-review"]))
+
+    assert runtime["semantic_review_enabled"] is False
 
 
 def test_system_prompt_message_mode_parses_string_booleans():

@@ -33,6 +33,12 @@ DEFAULT_REQUIRE_CLEAN_WORKSPACE = True
 DEFAULT_MAX_CHANGED_FILES = 8
 DEFAULT_MAX_CHANGED_LINES = 400
 DEFAULT_ISOLATE_WORKSPACE = True
+DEFAULT_SEMANTIC_REVIEW_ENABLED = True
+DEFAULT_SEMANTIC_REVIEW_MAX_REVISIONS = 2
+DEFAULT_SEMANTIC_REVIEW_PARSE_RETRIES = 1
+DEFAULT_SEMANTIC_REVIEW_MAX_CONTEXT_CHARS = 16000
+DEFAULT_SEMANTIC_REVIEW_MAX_FEEDBACK_CHARS = 3000
+DEFAULT_SEMANTIC_REVIEW_MAX_RISKS = 5
 
 
 def load_dotenv_file(path: Path) -> None:
@@ -103,6 +109,20 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         dest="allowed_paths",
         help="Restrict edits to this workspace-relative path. May be specified more than once.",
     )
+    review_group = parser.add_mutually_exclusive_group()
+    review_group.add_argument(
+        "--semantic-review",
+        action="store_true",
+        dest="semantic_review",
+        default=None,
+        help="Require semantic acceptance after visible tests pass.",
+    )
+    review_group.add_argument(
+        "--no-semantic-review",
+        action="store_false",
+        dest="semantic_review",
+        help="Use visible pytest success as the final acceptance signal.",
+    )
     return parser.parse_args(argv)
 
 
@@ -115,6 +135,7 @@ def resolve_runtime_config(project_root: Path, args: argparse.Namespace) -> dict
     sandbox_config = config.get("sandbox", {})
     safety_config = config.get("safety", {})
     test_config = config.get("test", {})
+    review_config = config.get("semantic_review", {})
 
     workspace = _resolve_path(project_root, args.workspace or paths_config.get("workspace", DEFAULT_WORKSPACE))
     return {
@@ -163,6 +184,26 @@ def resolve_runtime_config(project_root: Path, args: argparse.Namespace) -> dict
             else _as_bool(safety_config.get("isolate_workspace", DEFAULT_ISOLATE_WORKSPACE))
         ),
         "test_commands": normalize_test_commands(test_config.get("commands")),
+        "semantic_review_enabled": (
+            bool(args.semantic_review)
+            if getattr(args, "semantic_review", None) is not None
+            else _as_bool(review_config.get("enabled", DEFAULT_SEMANTIC_REVIEW_ENABLED))
+        ),
+        "semantic_review_max_revisions": int(
+            review_config.get("max_semantic_revisions", DEFAULT_SEMANTIC_REVIEW_MAX_REVISIONS)
+        ),
+        "semantic_review_parse_retries": int(
+            review_config.get("max_parse_retries", DEFAULT_SEMANTIC_REVIEW_PARSE_RETRIES)
+        ),
+        "semantic_review_max_context_chars": int(
+            review_config.get("max_context_chars", DEFAULT_SEMANTIC_REVIEW_MAX_CONTEXT_CHARS)
+        ),
+        "semantic_review_max_feedback_chars": int(
+            review_config.get("max_feedback_chars", DEFAULT_SEMANTIC_REVIEW_MAX_FEEDBACK_CHARS)
+        ),
+        "semantic_review_max_risks": int(
+            review_config.get("max_risks", DEFAULT_SEMANTIC_REVIEW_MAX_RISKS)
+        ),
     }
 
 
@@ -232,12 +273,24 @@ def main(argv: list[str] | None = None) -> int:
         max_changed_lines=runtime["max_changed_lines"],
         isolate_workspace=runtime["isolate_workspace"],
         test_commands=runtime["test_commands"],
+        semantic_review_enabled=runtime["semantic_review_enabled"],
+        semantic_review_max_revisions=runtime["semantic_review_max_revisions"],
+        semantic_review_parse_retries=runtime["semantic_review_parse_retries"],
+        semantic_review_max_context_chars=runtime["semantic_review_max_context_chars"],
+        semantic_review_max_feedback_chars=runtime["semantic_review_max_feedback_chars"],
+        semantic_review_max_risks=runtime["semantic_review_max_risks"],
     )
     result = agent.run(runtime["task"])
     trace_path = save_trace(result, runtime["trace_output_dir"])
     print(f"[agent] trace saved to {trace_path}")
     pprint(result)
-    return 0 if result.success else 1
+    if result.success:
+        return 0
+    if getattr(result, "visible_success", False) and getattr(
+        result, "acceptance_status", "not_run"
+    ) not in {"disabled", "not_run"}:
+        return 2
+    return 1
 
 
 def cli() -> None:

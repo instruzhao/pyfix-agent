@@ -85,6 +85,14 @@ Accepted partial improvements become worktree-local checkpoint commits. An itera
 
 The component boundaries use small data contracts (`RepairRequest`, `ContextBundle`, `EditProposal`, `ApplyResult`, and `RetryDecision`) instead of passing mutable agent internals between responsibilities. This makes an edit backend or retry policy independently testable without invoking a model or running the complete agent.
 
+## v0.6.0 Semantic Acceptance
+
+A visible pytest pass creates a candidate checkpoint rather than immediately proving final success. `ReviewContextProvider` builds changed-file and visible-test context, `SemanticReviewer` produces strict JSON, `ReviewParser` and evidence validation normalize it, and `ReviewPolicy` alone chooses accept, revise, or `needs_review`.
+
+`StructuralRiskScanner` emits deterministic code-shape questions rather than business rules. A delimiter composition cue disappears when the candidate normalizes an already-present boundary marker; a numeric tie-breaking cue disappears when quantization selects an explicit rounding policy. Evidence-based reviewer warnings matching a cue can trigger a bounded revision even when the model labels them non-blocking.
+
+Reviewer output never edits the workspace and is not copied raw into the repair prompt. `ReviewFeedbackBuilder` renders only validated risks and counterexample properties. A revision that breaks visible tests is rolled back to the previous visible-pass checkpoint. The final result distinguishes `visible_success` from semantic acceptance and exports the last candidate even when strict review ends in `needs_review`.
+
 ## Repair Modes
 
 `replacement` is the default mode. It asks the model for a JSON array of old/new replacements. It is best suited to small, structured edits where exact matching can be validated before writing files.

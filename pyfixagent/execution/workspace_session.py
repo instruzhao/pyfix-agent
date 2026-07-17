@@ -75,8 +75,8 @@ class WorkspaceSession:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         return self.patch_output_dir / f"patch_{timestamp}_attempt_{iteration}.patch"
 
-    def checkpoint(self, iteration: int) -> None:
-        self.transaction.checkpoint(iteration)
+    def checkpoint(self, iteration: int, kind: str = "iteration") -> str | None:
+        return self.transaction.checkpoint(iteration, kind=kind)
 
     def rollback(self) -> None:
         self.transaction.rollback()
@@ -90,6 +90,9 @@ class WorkspaceSession:
         path = self.patch_output_dir / f"final_{timestamp}.patch"
         path.write_text(patch, encoding="utf-8", newline="\n")
         return patch, path
+
+    def candidate_diff(self) -> str:
+        return self.transaction.final_diff()
 
     def close(self) -> None:
         self.transaction.close()

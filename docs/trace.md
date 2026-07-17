@@ -74,6 +74,8 @@ The result also includes a short reason so readers can quickly tell whether the 
 
 `context_expansion_level` records the plan used for an iteration. The corresponding `context` metadata includes `base_strategy`, `expansion_level`, `effective_line_window`, and `effective_max_files`, so retry-driven context growth can be audited without reconstructing configuration state.
 
+Trace schema 1.2 adds `visible_success`, `acceptance_status`, `candidate_patch`, `candidate_patch_path`, `semantic_revisions_used`, and a `reviews` array. Each review records the candidate iteration/checkpoint, prompt, raw and parsed output, validation error, model calls, context metadata, policy action/reason, and selected risk IDs. Iterations record whether they were triggered by pytest failure or semantic revision and which review feedback IDs they consumed.
+
 ## Model Output
 
 `model_output` records how the model response was interpreted.

@@ -215,8 +215,11 @@ def final_summary(result: Any) -> dict:
             if path not in modified_files:
                 modified_files.append(path)
 
+    acceptance_status = getattr(result, "acceptance_status", "not_run")
     if getattr(result, "success", False):
         status = "passed"
+    elif getattr(result, "visible_success", False) and acceptance_status not in {"disabled", "not_run"}:
+        status = "needs_review"
     elif getattr(result, "error", None):
         status = "error" if not iterations else "failed"
     else:
@@ -231,6 +234,10 @@ def final_summary(result: Any) -> dict:
         "final_failed": final.failed,
         "modified_files": modified_files,
         "final_test_result": short_test_result(final),
+        "visible_success": bool(getattr(result, "visible_success", False)),
+        "acceptance_status": acceptance_status,
+        "review_count": len(getattr(result, "reviews", []) or []),
+        "semantic_revisions_used": int(getattr(result, "semantic_revisions_used", 0) or 0),
     }
 
 

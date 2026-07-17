@@ -69,7 +69,7 @@ def test_render_markdown_contains_run_table():
     rendered = render_markdown(report)
 
     assert "Success@1: 100.0%" in rendered
-    assert "| a | traceback | 1 | yes | yes | yes |" in rendered
+    assert "| a | traceback | 1 | yes | n/a | yes | yes |" in rendered
 
 
 def test_run_benchmark_resets_case_and_saves_trace(tmp_path):
@@ -254,3 +254,58 @@ def test_exported_patch_is_materialized_without_text_newline_translation(tmp_pat
     _apply_exported_patch(workspace, patch)
 
     assert source.read_text(encoding="utf-8") == "value = 2\n"
+
+
+def test_semantic_rejection_is_still_evaluated_by_external_holdout(tmp_path):
+    fixture = tmp_path / "fixture"
+    (fixture / "src").mkdir(parents=True)
+    (fixture / "tests").mkdir()
+    (fixture / "src" / "calculator.py").write_text(
+        "def add(a, b):\n    return a - b\n", encoding="utf-8"
+    )
+    (fixture / "tests" / "test_visible.py").write_text(
+        "from src.calculator import add\n\ndef test_add():\n    assert add(2, 3) == 5\n",
+        encoding="utf-8",
+    )
+    holdout = tmp_path / "holdout"
+    holdout.mkdir()
+    (holdout / "test_holdout.py").write_text(
+        "from src.calculator import add\n\ndef test_hidden():\n    assert add(-1, 1) == 0\n",
+        encoding="utf-8",
+    )
+    case = BenchmarkCase(
+        case_id="add-review",
+        allowed_paths=("src",),
+        fixture=fixture,
+        holdout_path=holdout,
+        max_iterations=1,
+    )
+    repair = '[{"path":"src/calculator.py","old":"return a - b","new":"return a + b"}]'
+    abstain = json.dumps(
+        {
+            "verdict": "abstain",
+            "summary": "Insufficient evidence.",
+            "contracts": [],
+            "risks": [],
+            "repair_feedback": "",
+        }
+    )
+
+    report = run_benchmark(
+        cases=[case],
+        project_root=tmp_path,
+        output_dir=tmp_path / "outputs",
+        model_factory=lambda: MockModel([repair, abstain]),
+        repeat=1,
+        semantic_review_enabled=True,
+        semantic_review_parse_retries=0,
+    )
+
+    run = report["runs"][0]
+    assert run["visible_success"] is True
+    assert run["agent_accepted"] is False
+    assert run["holdout_success"] is True
+    assert run["candidate_success"] is True
+    assert run["success"] is False
+    assert run["failure_type"] == "false_reject"
+    assert report["summary"]["false_reject_count"] == 1

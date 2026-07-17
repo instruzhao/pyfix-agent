@@ -14,6 +14,10 @@ from pyfixagent.repair.evaluator import AttemptEvaluator
 from pyfixagent.repair.model_client import ModelClient
 from pyfixagent.repair.prompting import PromptBuilder
 from pyfixagent.repair.retry_policy import RetryPolicy
+from pyfixagent.review.context import ReviewContextProvider
+from pyfixagent.review.parser import ReviewParser
+from pyfixagent.review.policy import ReviewPolicy
+from pyfixagent.review.reviewer import SemanticReviewer
 from pyfixagent.sandbox.local_sandbox import LocalSandbox
 from pyfixagent.schemas import AgentResult
 from pyfixagent.tools.edit_policy import EditPolicy
@@ -41,6 +45,12 @@ class DefaultAgent:
         max_changed_lines: int = 400,
         isolate_workspace: bool = False,
         test_commands: list[list[str]] | tuple[tuple[str, ...], ...] | None = None,
+        semantic_review_enabled: bool = False,
+        semantic_review_max_revisions: int = 1,
+        semantic_review_parse_retries: int = 1,
+        semantic_review_max_context_chars: int = 16000,
+        semantic_review_max_feedback_chars: int = 3000,
+        semantic_review_max_risks: int = 5,
     ):
         if initial_mode not in {"patch", "replacement"}:
             raise ValueError("initial_mode must be 'patch' or 'replacement'")
@@ -62,6 +72,12 @@ class DefaultAgent:
         self.test_commands = normalize_test_commands(
             [list(command) for command in test_commands] if test_commands is not None else None
         )
+        self.semantic_review_enabled = semantic_review_enabled
+        self.semantic_review_max_revisions = max(0, semantic_review_max_revisions)
+        self.semantic_review_parse_retries = max(0, semantic_review_parse_retries)
+        self.semantic_review_max_context_chars = max(1000, semantic_review_max_context_chars)
+        self.semantic_review_max_feedback_chars = max(200, semantic_review_max_feedback_chars)
+        self.semantic_review_max_risks = max(1, semantic_review_max_risks)
         self.edit_policy = EditPolicy(
             allowed_paths=tuple(allowed_paths or ()),
             max_files=max(1, max_changed_files),
@@ -77,6 +93,7 @@ class DefaultAgent:
         return self._build_engine().run(request)
 
     def _build_engine(self) -> RepairEngine:
+        model_client = ModelClient(self.model)
         return RepairEngine(
             workspace_session=WorkspaceSession(
                 self.sandbox.workspace,
@@ -94,13 +111,28 @@ class DefaultAgent:
             ),
             context_policy=ContextExpansionPolicy(self.context_max_expansion_level),
             prompt_builder=PromptBuilder(),
-            model_client=ModelClient(self.model),
+            model_client=model_client,
             backends={
                 "patch": PatchBackend(self.edit_policy),
                 "replacement": ReplacementBackend(self.edit_policy),
             },
             evaluator=AttemptEvaluator(),
             retry_policy=RetryPolicy(self.initial_mode),
+            semantic_review_enabled=self.semantic_review_enabled,
+            review_context_provider=ReviewContextProvider(
+                max_chars=self.semantic_review_max_context_chars,
+                include_tests=self.context_include_tests,
+            ),
+            semantic_reviewer=SemanticReviewer(
+                model_client,
+                ReviewParser(
+                    max_risks=self.semantic_review_max_risks,
+                    max_text_chars=self.semantic_review_max_feedback_chars,
+                ),
+                max_parse_retries=self.semantic_review_parse_retries,
+            ),
+            review_policy=ReviewPolicy(self.semantic_review_max_revisions),
+            review_max_feedback_chars=self.semantic_review_max_feedback_chars,
         )
 
     @staticmethod
