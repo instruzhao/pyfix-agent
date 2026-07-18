@@ -99,7 +99,13 @@ Benchmark manifest schema 3 keeps evaluation knowledge outside the agent boundar
 
 Benchmark report schema 4 treats repair, review, retrieval, and indexing as distinct measurements. It records repair/review tokens and model duration separately, aggregates repository cache/build timing, and scores selected paths only after the agent closes. Paired A/B results compare matching case, strategy, and repetition identities.
 
-The CLI assembles a separate reviewer model instance from the same provider configuration with an independent output and thinking budget. `SemanticReviewer` still depends only on `ModelClient`; the engine does not know provider limits. Direct library callers can omit the reviewer model and preserve shared-model behavior.
+The CLI assembles a separate reviewer model instance from the same provider configuration with an independent output limit. A reviewer thinking budget is sent only when explicitly configured, so provider-specific repair parameters cannot leak into review calls. `SemanticReviewer` still depends only on `ModelClient`; the engine does not know provider limits. Direct library callers can omit the reviewer model and preserve shared-model behavior.
+
+## v0.6.3 Provider-Safe Model Defaults
+
+The default configuration uses the Alibaba Cloud deployment of `kimi-k2.6` through the existing DashScope OpenAI-compatible endpoint. Thinking is enabled, temperature uses the model's thinking-mode value, and system instructions use the standard system role. The configuration omits `thinking_budget`, which is a Qwen-specific control on this endpoint.
+
+`build_review_model_config` copies connection and general generation settings into a distinct reviewer configuration, then replaces its output limit and thinking flag. It removes any inherited thinking budget unless `semantic_review.thinking_budget` explicitly supplies one. This keeps provider capability decisions at the composition boundary instead of coupling them to `RepairEngine`, `SemanticReviewer`, or benchmark orchestration.
 
 Trace privacy is an output concern owned by `TraceRedactor`, not by repair orchestration. `paths` replaces known absolute roots while retaining prompts and diffs. `safe` replaces source-bearing strings with length and SHA-256 markers while preserving normalized decisions, counts, timings, and token usage. Neither mode changes the in-memory result used by the runner or the external holdout boundary.
 

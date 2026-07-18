@@ -70,6 +70,14 @@
 - deterministic enforcement check for explicit positive-input docstring contracts
 - configurable path and safe source-content trace redaction in trace schema 1.4
 
+## v0.6.3 Kimi Default and Provider-Safe Thinking — Completed
+
+- default DashScope model changed to `kimi-k2.6`
+- Kimi thinking mode configured without the Qwen-only `thinking_budget`
+- standard system-role prompting restored for the default model
+- reviewer output remains independently bounded without inheriting repair-only thinking controls
+- explicit custom thinking budgets remain supported for compatible providers
+
 ## Next: v0.7.0 Execution Isolation
 
 - container-backed sandbox implementation behind the existing execution boundary
