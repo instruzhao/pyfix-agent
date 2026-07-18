@@ -101,9 +101,9 @@ Benchmark report schema 4 treats repair, review, retrieval, and indexing as dist
 
 The CLI assembles a separate reviewer model instance from the same provider configuration with an independent output limit. A reviewer thinking budget is sent only when explicitly configured, so provider-specific repair parameters cannot leak into review calls. `SemanticReviewer` still depends only on `ModelClient`; the engine does not know provider limits. Direct library callers can omit the reviewer model and preserve shared-model behavior.
 
-## v0.6.3 Provider-Safe Model Defaults
+## Provider-Safe Model Defaults
 
-The default configuration uses the Alibaba Cloud deployment of `kimi-k2.6` through the existing DashScope OpenAI-compatible endpoint. Thinking is enabled, temperature uses the model's thinking-mode value, and system instructions use the standard system role. The configuration omits `thinking_budget`, which is a Qwen-specific control on this endpoint.
+The default configuration uses the Alibaba Cloud deployment of `deepseek-v4-flash` through the existing DashScope OpenAI-compatible endpoint. Thinking is enabled, temperature uses the configured thinking-mode value, and system instructions use the standard system role. The configuration omits `thinking_budget`, which is a Qwen-specific control on this endpoint.
 
 `build_review_model_config` copies connection and general generation settings into a distinct reviewer configuration, then replaces its output limit and thinking flag. It removes any inherited thinking budget unless `semantic_review.thinking_budget` explicitly supplies one. This keeps provider capability decisions at the composition boundary instead of coupling them to `RepairEngine`, `SemanticReviewer`, or benchmark orchestration.
 
