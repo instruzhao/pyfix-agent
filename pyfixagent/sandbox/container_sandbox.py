@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 import json
+import os
 from pathlib import Path
 import re
 import shutil
@@ -10,6 +11,7 @@ import time
 import uuid
 
 from pyfixagent.sandbox.base import CommandResult
+from pyfixagent.sandbox.bounded_process import run_bounded_process
 from pyfixagent.sandbox.policy import is_command_allowed
 
 
@@ -21,7 +23,7 @@ _USER_PATTERN = re.compile(r"^[1-9][0-9]*(?::[1-9][0-9]*)?$")
 @dataclass(frozen=True)
 class ContainerPolicy:
     engine: str = "docker"
-    image: str = "pyfixagent-runner:0.7.0"
+    image: str = "pyfixagent-runner:0.7.1"
     pull_policy: str = "never"
     network: str = "none"
     cpus: float = 1.0
@@ -29,6 +31,10 @@ class ContainerPolicy:
     pids_limit: int = 128
     read_only_root: bool = True
     tmpfs_size: str = "128m"
+    output_limit: str = "4m"
+    workspace_write_limit: str = "256m"
+    file_size_limit: str = "64m"
+    open_files_limit: int = 1024
     user: str = "65534:65534"
     dependency_policy: str = "image_only"
 
@@ -49,8 +55,16 @@ class ContainerPolicy:
             raise ValueError("container pids_limit must be positive")
         if not _SIZE_PATTERN.fullmatch(self.tmpfs_size):
             raise ValueError("container tmpfs_size must be a positive Docker size such as 128m")
+        if not _SIZE_PATTERN.fullmatch(self.output_limit):
+            raise ValueError("container output_limit must be a positive size such as 4m")
+        if not _SIZE_PATTERN.fullmatch(self.workspace_write_limit):
+            raise ValueError("container workspace_write_limit must be a positive size such as 256m")
+        if not _SIZE_PATTERN.fullmatch(self.file_size_limit):
+            raise ValueError("container file_size_limit must be a positive size such as 64m")
+        if self.open_files_limit < 32:
+            raise ValueError("container open_files_limit must be at least 32")
         if self.dependency_policy != "image_only":
-            raise ValueError("v0.7.0 supports only the image_only dependency policy")
+            raise ValueError("v0.7.1 supports only the image_only dependency policy")
         if not _USER_PATTERN.fullmatch(self.user):
             raise ValueError("container user must be an explicit non-root uid[:gid]")
 
@@ -145,35 +159,55 @@ class ContainerSandbox:
 
         container_name = f"pyfixagent-{uuid.uuid4().hex[:12]}"
         runtime_command = self._build_runtime_command(command, workspace, container_name)
+        initial_workspace_size = _workspace_size(workspace)
+        workspace_limit = initial_workspace_size + _parse_size_bytes(
+            self.policy.workspace_write_limit
+        )
+        next_workspace_check = 0.0
+
+        def check_workspace_budget() -> str | None:
+            nonlocal next_workspace_check
+            now = time.monotonic()
+            if now < next_workspace_check:
+                return None
+            next_workspace_check = now + 0.5
+            current_size = _workspace_size(workspace, stop_after=workspace_limit)
+            if current_size > workspace_limit:
+                return (
+                    "workspace growth exceeded "
+                    f"{_parse_size_bytes(self.policy.workspace_write_limit)} bytes"
+                )
+            return None
+
         try:
-            completed = subprocess.run(
+            completed = run_bounded_process(
                 runtime_command,
-                timeout=timeout_seconds,
-                capture_output=True,
-                text=True,
-                check=False,
+                timeout_seconds=timeout_seconds,
+                max_output_bytes=_parse_size_bytes(self.policy.output_limit),
+                policy_check=check_workspace_budget,
+                terminate=lambda: self._force_remove(container_name),
             )
+            stderr = completed.stderr
+            if completed.timed_out and not stderr:
+                stderr = f"container command timed out after {timeout_seconds}s"
+            if completed.policy_violation:
+                marker = f"sandbox policy violation: {completed.policy_violation}"
+                stderr = f"{stderr.rstrip()}\n{marker}".lstrip()
             return CommandResult(
                 command=list(command),
-                exit_code=completed.returncode,
+                exit_code=completed.exit_code,
                 stdout=completed.stdout,
-                stderr=completed.stderr,
+                stderr=stderr,
                 duration=time.perf_counter() - start,
+                timeout=completed.timed_out,
                 backend=self.backend,
                 runtime_command=runtime_command,
-                infrastructure_error=completed.returncode in {125, 126, 127},
-            )
-        except subprocess.TimeoutExpired as exc:
-            self._force_remove(container_name)
-            return CommandResult(
-                command=list(command),
-                exit_code=124,
-                stdout=_subprocess_text(exc.stdout),
-                stderr=_subprocess_text(exc.stderr) or f"container command timed out after {timeout_seconds}s",
-                duration=time.perf_counter() - start,
-                timeout=True,
-                backend=self.backend,
-                runtime_command=runtime_command,
+                infrastructure_error=(
+                    completed.exit_code in {125, 126, 127}
+                    or completed.policy_violation is not None
+                ),
+                output_truncated=completed.output_truncated,
+                policy_violation=completed.policy_violation,
             )
         except Exception as exc:
             return CommandResult(
@@ -217,6 +251,9 @@ class ContainerSandbox:
             "--rm",
             "--name",
             container_name,
+            "--init",
+            "--stop-timeout",
+            "1",
             "--pull",
             policy.pull_policy,
             "--workdir",
@@ -225,12 +262,20 @@ class ContainerSandbox:
             f"type=bind,source={workspace},target=/workspace",
             "--network",
             policy.network,
+            "--ipc",
+            "none",
             "--cpus",
             str(policy.cpus),
             "--memory",
             policy.memory,
             "--pids-limit",
             str(policy.pids_limit),
+            "--ulimit",
+            "core=0:0",
+            "--ulimit",
+            f"fsize={_parse_size_bytes(policy.file_size_limit)}:{_parse_size_bytes(policy.file_size_limit)}",
+            "--ulimit",
+            f"nofile={policy.open_files_limit}:{policy.open_files_limit}",
             "--security-opt",
             "no-new-privileges:true",
             "--cap-drop",
@@ -373,12 +418,41 @@ def _is_dependency_install(command: list[str]) -> bool:
     } and lowered[1:3] == ["-m", "pip"]
 
 
-def _subprocess_text(value) -> str:
-    if value is None:
-        return ""
-    if isinstance(value, bytes):
-        return value.decode("utf-8", errors="replace")
-    return str(value)
+def _parse_size_bytes(value: str) -> int:
+    normalized = value.strip().lower()
+    if normalized.endswith("b"):
+        normalized = normalized[:-1]
+    multiplier = 1
+    if normalized[-1:] in {"k", "m", "g"}:
+        suffix = normalized[-1]
+        normalized = normalized[:-1]
+        multiplier = {"k": 1024, "m": 1024**2, "g": 1024**3}[suffix]
+    return int(normalized) * multiplier
+
+
+def _workspace_size(workspace: Path, stop_after: int | None = None) -> int:
+    total = 0
+    pending = [workspace]
+    while pending:
+        directory = pending.pop()
+        try:
+            entries = os.scandir(directory)
+        except OSError:
+            continue
+        with entries:
+            for entry in entries:
+                try:
+                    if entry.is_symlink():
+                        continue
+                    if entry.is_dir(follow_symlinks=False):
+                        pending.append(Path(entry.path))
+                    elif entry.is_file(follow_symlinks=False):
+                        total += entry.stat(follow_symlinks=False).st_size
+                        if stop_after is not None and total > stop_after:
+                            return total
+                except OSError:
+                    continue
+    return total
 
 
 def _best_effort_output(command: list[str]) -> str:

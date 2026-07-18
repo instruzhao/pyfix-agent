@@ -4,7 +4,7 @@ PyFixAgent writes structured JSON traces so a repair run can be inspected withou
 
 ## Top-level Fields
 
-`trace_schema_version` identifies the trace contract. v0.3–v0.4 traces use schema `1.0`; v0.5 uses `1.1`; v0.6.0, v0.6.1, v0.6.2, and v0.7.0 use `1.2`, `1.3`, `1.4`, and `1.5` respectively.
+`trace_schema_version` identifies the trace contract. v0.3–v0.4 traces use schema `1.0`; v0.5 uses `1.1`; v0.6.0, v0.6.1, and v0.6.2 use `1.2`, `1.3`, and `1.4`; v0.7.0 and v0.7.1 use `1.5`.
 
 `task` records the natural-language task given to the agent.
 

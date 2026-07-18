@@ -62,3 +62,39 @@ jobs:
 
       - name: Validate benchmark protocol
         run: pyfixagent-benchmark --validate
+
+  container:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install project
+        run: pip install -e .
+
+      - name: Build runner with supply-chain attestations
+        run: |
+          docker build --sbom=true --provenance=mode=max \
+            -f containers/Dockerfile \
+            -t pyfixagent-runner:0.7.1 .
+
+      - name: Run real container and resource-policy tests
+        env:
+          RUN_DOCKER_TESTS: "1"
+        run: pytest tests/test_bounded_process.py tests/test_container_sandbox.py -q
+
+      - name: Reject application-layer Critical or High CVEs
+        uses: docker/scout-action@v1
+        with:
+          command: cves
+          image: pyfixagent-runner:0.7.1
+          ignore-base: true
+          only-severities: critical,high
+          exit-code: true

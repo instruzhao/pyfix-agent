@@ -6,7 +6,7 @@ It is a prototype for demonstrating the repair loop, execution boundaries, and t
 
 ## Overview
 
-The v0.7.0 workflow is transactional, repository-aware, review-gated, execution-policy aware, and cost-observable:
+The v0.7.1 workflow is transactional, repository-aware, review-gated, execution-policy aware, and cost-observable:
 
     create a temporary Git worktree
     run the configured pytest command through a local or container sandbox
@@ -63,8 +63,9 @@ The repository includes two resettable demo workspaces:
 - Paired repository-context A/B benchmarks with context recall and distractor metrics.
 - Separate repair/review token and latency accounting with a bounded reviewer model.
 - Configurable path or source-content trace redaction.
-- Optional ephemeral Docker/Podman execution with no network by default, a read-only root, a single temporary-worktree mount, dropped capabilities, no-new-privileges, and CPU/memory/PID/time limits.
-- Image-only dependency policy plus resolved image/runtime metadata in trace schema 1.5.
+- Default ephemeral Docker/Podman execution with no network, a read-only root, a single temporary-worktree mount, dropped capabilities, no-new-privileges, and CPU/memory/PID/time limits. Host-local execution requires an explicit trusted-project override.
+- Bounded stdout/stderr capture, single-file limits, open-file limits, and sampled worktree-growth enforcement.
+- Image-only dependency policy, digest-pinned base, hashed Linux wheel lock, provenance/SBOM verification, and resolved image/runtime metadata in trace schema 1.5.
 - SHA-256-bound human approval before an exported patch can update a selected checkout.
 - Standalone, script-free HTML trace viewer with a privacy audit.
 
@@ -84,15 +85,26 @@ Copy `.env.example` to `.env` and set the API key required by your model provide
 
 The default configured model is `deepseek-v4-flash` through the DashScope OpenAI-compatible endpoint. Thinking mode is enabled without a Qwen-only `thinking_budget` parameter.
 
-Then reset the examples and run the default configured workspace:
+Build the default Linux/amd64 runner with provenance metadata:
+
+    docker build --pull=false --provenance=mode=max -f containers/Dockerfile -t pyfixagent-runner:0.7.1 .
+
+Then reset the examples and run the default configured workspace through the container backend:
 
     python scripts/reset_demo.py --all
     python -m pyfixagent.main
 
-The compatibility default is the local backend. To build and use the v0.7.0 container runner:
+The container backend is the safety default. Host execution is available only as an explicit trusted-project override:
 
-    docker build -f containers/Dockerfile -t pyfixagent-runner:0.7.0 .
-    python -m pyfixagent.main --sandbox-backend container
+    python -m pyfixagent.main --sandbox-backend local
+
+Select a separately reviewed project-specific image without editing the main config:
+
+    python -m pyfixagent.main --container-image my-project-runner:reviewed
+
+Verify that the runner has no unreviewed Critical/High CVEs:
+
+    pyfixagent-verify-container --image pyfixagent-runner:0.7.1
 
 The container path requires a running Docker or Podman daemon. Runtime package installation is disabled; dependencies must be present in the configured image.
 
@@ -245,6 +257,8 @@ v0.6.3 makes thinking controls provider-safe and changes the final local default
 
 v0.7.0 adds a container-backed execution boundary, resource and network policies, image-only dependency capture, digest-bound patch approval, trace schema 1.5 execution metadata, privacy audit, and a static HTML trace viewer. See `docs/v0.7.0.md` for details.
 
+v0.7.1 makes the container backend the default, bounds host-side output and worktree growth, adds hard file/open-file limits, makes the image non-root by default, requires hashed wheel artifacts, records provenance/SBOM evidence, and adds an expiring Critical/High CVE gate. See `docs/v0.7.1.md` for details.
+
 ## Limitations
 
 - The local backend is not a security sandbox; the container backend is defense in depth, not VM-grade isolation.
@@ -267,4 +281,4 @@ Future work is listed in `docs/roadmap.md`. Items there are not implemented unle
 
 ## Project Status
 
-PyFixAgent v0.7.0 is a transactional repair baseline with constrained edits, temporary-worktree execution, semantic rollback/retry, bounded static repository context, provider-safe review, holdout validation, cost accounting, configurable trace privacy, and an optional hardened container test boundary. Local execution remains available for compatibility. Container execution mounts only the disposable worktree and applies explicit resource policies; exported patches still require separate digest-bound approval before touching the selected checkout.
+PyFixAgent v0.7.1 is a transactional repair baseline with constrained edits, temporary-worktree execution, semantic rollback/retry, bounded static repository context, provider-safe review, holdout validation, cost accounting, configurable trace privacy, and a default hardened container test boundary. Local execution remains an explicit trusted-project compatibility option. Container execution mounts only the disposable worktree and applies privilege, network, process, memory, output, file, and workspace-growth policies; exported patches still require separate digest-bound approval before touching the selected checkout.

@@ -22,6 +22,7 @@ def test_main_help_displays_cli_options():
     assert "--mode" in completed.stdout
     assert "--context-strategy" in completed.stdout
     assert "--sandbox-backend" in completed.stdout
+    assert "--container-image" in completed.stdout
 
 
 def test_cli_arguments_override_config(tmp_path):
@@ -109,9 +110,21 @@ def test_in_place_flag_disables_temporary_worktree(tmp_path):
     config_path = tmp_path / "minimal.yaml"
     config_path.write_text("model: {}\n", encoding="utf-8")
 
-    runtime = resolve_runtime_config(tmp_path, parse_args(["--config", str(config_path), "--in-place"]))
+    runtime = resolve_runtime_config(
+        tmp_path,
+        parse_args(
+            [
+                "--config",
+                str(config_path),
+                "--sandbox-backend",
+                "local",
+                "--in-place",
+            ]
+        ),
+    )
 
     assert runtime["isolate_workspace"] is False
+    assert runtime["sandbox_backend"] == "local"
 
 
 def test_main_returns_nonzero_when_agent_does_not_repair(monkeypatch, tmp_path):

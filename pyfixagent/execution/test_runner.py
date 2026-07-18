@@ -79,6 +79,8 @@ class TestRunner:
             f"duration: {result.duration:.2f}s",
             f"timeout: {result.timeout}",
             f"infrastructure_error: {result.infrastructure_error}",
+            f"output_truncated: {result.output_truncated}",
+            f"policy_violation: {result.policy_violation or 'none'}",
             "stdout:",
             result.stdout,
             "stderr:",

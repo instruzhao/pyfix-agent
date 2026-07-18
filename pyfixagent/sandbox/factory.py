@@ -15,9 +15,10 @@ def build_sandbox(
     sandbox_config: dict | None = None,
     *,
     backend_override: str | None = None,
+    container_image_override: str | None = None,
 ) -> Sandbox:
     config = dict(sandbox_config or {})
-    backend = str(backend_override or config.get("backend", "local")).strip().lower()
+    backend = str(backend_override or config.get("backend", "container")).strip().lower()
     if backend not in SANDBOX_BACKENDS:
         raise ValueError(f"sandbox backend must be one of: {', '.join(sorted(SANDBOX_BACKENDS))}")
     timeout_seconds = max(1, int(config.get("timeout_seconds", 30)))
@@ -27,7 +28,7 @@ def build_sandbox(
     container = dict(config.get("container", {}) or {})
     policy = ContainerPolicy(
         engine=str(container.get("engine", "docker")),
-        image=str(container.get("image", "pyfixagent-runner:0.7.0")),
+        image=str(container_image_override or container.get("image", "pyfixagent-runner:0.7.1")),
         pull_policy=str(container.get("pull_policy", "never")),
         network=str(container.get("network", "none")),
         cpus=float(container.get("cpus", 1.0)),
@@ -35,6 +36,10 @@ def build_sandbox(
         pids_limit=int(container.get("pids_limit", 128)),
         read_only_root=_as_bool(container.get("read_only_root", True)),
         tmpfs_size=str(container.get("tmpfs_size", "128m")),
+        output_limit=str(container.get("output_limit", "4m")),
+        workspace_write_limit=str(container.get("workspace_write_limit", "256m")),
+        file_size_limit=str(container.get("file_size_limit", "64m")),
+        open_files_limit=int(container.get("open_files_limit", 1024)),
         user=str(container.get("user", "65534:65534")),
         dependency_policy=str(container.get("dependency_policy", "image_only")),
     )

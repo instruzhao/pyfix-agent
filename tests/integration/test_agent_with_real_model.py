@@ -12,7 +12,7 @@ from pyfixagent.main import (
     save_trace,
 )
 from pyfixagent.models.litellm_model import LiteLLMModel
-from pyfixagent.sandbox.local_sandbox import LocalSandbox
+from pyfixagent.sandbox.factory import build_sandbox
 from pyfixagent.utils.config import load_config
 from scripts.reset_demo import reset_demo
 
@@ -75,9 +75,10 @@ def test_agent_runs_with_real_model_and_writes_trace():
     try:
         agent = DefaultAgent(
             model=model,
-            sandbox=LocalSandbox(workspace, timeout_seconds=30),
+            sandbox=build_sandbox(workspace, config.get("sandbox", {})),
             patch_output_dir=patch_output_dir,
             max_iterations=2,
+            isolate_workspace=True,
         )
         result = agent.run(
             "Fix the failing tests in workspaces/demo_project. "
@@ -87,18 +88,14 @@ def test_agent_runs_with_real_model_and_writes_trace():
 
         assert trace_path.exists()
         data = json.loads(trace_path.read_text(encoding="utf-8"))
-        assert data["workspace_strategy"] == "incremental_repair"
+        assert data["workspace_strategy"] == "temporary_git_worktree"
         assert isinstance(data["iterations"], list)
         assert len(result.iterations) > 0
         assert any(record.raw_model_output for record in result.iterations)
         assert all(record.mode for record in result.iterations)
+        assert data["environment"]["execution"]["backend"] == "container"
+        assert result.success is True
 
-        if result.success:
-            assert result.error is None
-        else:
-            assert result.error or any(
-                record.apply_check_error or record.apply_error or record.pytest_output
-                for record in result.iterations
-            )
+        assert result.error is None
     finally:
         reset_demo(clean_outputs_requested=False)

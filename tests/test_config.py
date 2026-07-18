@@ -27,9 +27,11 @@ def test_default_config_matches_documented_defaults():
     assert runtime["context_fallback_to_full"] is True
     assert runtime["context_include_tests"] is True
     assert runtime["isolate_workspace"] is True
-    assert runtime["sandbox_backend"] == "local"
+    assert runtime["sandbox_backend"] == "container"
     assert runtime["sandbox_config"]["container"]["network"] == "none"
     assert runtime["sandbox_config"]["container"]["dependency_policy"] == "image_only"
+    assert runtime["sandbox_config"]["container"]["output_limit"] == "4m"
+    assert runtime["sandbox_config"]["container"]["workspace_write_limit"] == "256m"
     assert runtime["test_commands"] == (("python", "-m", "pytest", "-p", "no:cacheprovider"),)
     assert runtime["config"]["model"]["name"] == "deepseek-v4-flash"
     assert runtime["config"]["model"]["temperature"] == 1.0
@@ -77,6 +79,24 @@ def test_cli_can_select_container_sandbox_without_changing_config(tmp_path):
     assert isinstance(sandbox, ContainerSandbox)
     assert sandbox.policy.network == "none"
     assert sandbox.policy.read_only_root is True
+
+
+def test_cli_can_select_a_prebuilt_container_image(tmp_path):
+    project_root = Path(__file__).resolve().parents[1]
+    runtime = resolve_runtime_config(
+        project_root,
+        parse_args(["--container-image", "custom/project-runner:42"]),
+    )
+
+    sandbox = build_sandbox(
+        tmp_path,
+        runtime["sandbox_config"],
+        backend_override=runtime["sandbox_backend"],
+        container_image_override=runtime["container_image"],
+    )
+
+    assert isinstance(sandbox, ContainerSandbox)
+    assert sandbox.policy.image == "custom/project-runner:42"
 
 
 def test_container_sandbox_rejects_in_place_execution():

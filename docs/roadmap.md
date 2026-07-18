@@ -86,12 +86,20 @@
 - SHA-256-bound human approval before applying exported patches to a selected checkout
 - trace schema 1.5 execution metadata, privacy audit, and a script-free static trace viewer
 
-## Next: v0.7.1 Isolation Portability
+## v0.7.1 Resource and Supply-Chain Hardening — Completed
 
-- real Docker and Podman CI smoke jobs on supported host platforms
-- published runner image with a pinned base-image digest and provenance metadata
-- reviewed dependency profiles for minimal and scientific Python projects
-- container startup/cache benchmarks and clearer daemon/image diagnostics
+- container execution is the default; local host execution is an explicit trusted-project override
+- bounded host output capture plus single-file, open-file, sampled workspace-growth, IPC, and cleanup controls
+- non-root image default, digest-pinned base, fully resolved wheel hashes, OCI labels, provenance, and local SBOM verification
+- expiring reviewed-CVE gate, application-layer Scout CI gate, and weekly Docker digest updates
+- CLI selection of reviewed project-specific runner images
+
+## Next: v0.7.2 Runner Portability
+
+- Podman smoke coverage and Linux host qualification
+- published signed runner image and downloadable SBOM/provenance artifacts
+- reviewed minimal, scientific, and web dependency profiles
+- container startup/cache benchmarks and disk-I/O quota experiments
 
 ## Deferred
 
