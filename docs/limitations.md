@@ -38,6 +38,8 @@ PyFixAgent does not create GitHub issues, branches, pull requests, comments, or 
 
 Model responses can be malformed, incomplete, overbroad, or wrong. PyFixAgent adds parsing, validation, and pytest feedback, but it cannot guarantee reliable repairs.
 
+Generation parameters are provider-specific. The default Kimi configuration avoids sending a Qwen-only thinking budget, but custom model configurations remain the operator's responsibility and should be checked against the selected provider documentation.
+
 ## Trace Sensitivity
 
 Path-redacted traces may still contain source code, pytest logs, model outputs, credentials embedded in source, and other sensitive text. Safe mode hashes known source-bearing fields but is not a general secret detector and cannot guarantee that every sensitive value is removed from normalized errors or metadata. Review traces before publishing them.

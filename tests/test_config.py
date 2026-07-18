@@ -24,16 +24,16 @@ def test_default_config_matches_documented_defaults():
     assert runtime["context_include_tests"] is True
     assert runtime["isolate_workspace"] is True
     assert runtime["test_commands"] == (("python", "-m", "pytest", "-p", "no:cacheprovider"),)
-    assert runtime["config"]["model"]["name"] == "qwen3.6-max-preview"
+    assert runtime["config"]["model"]["name"] == "kimi-k2.6"
+    assert runtime["config"]["model"]["temperature"] == 1.0
     assert build_model_extra_body(runtime["config"]["model"]) == {
         "enable_thinking": True,
-        "thinking_budget": 4096,
     }
-    assert runtime["config"]["model"]["system_prompt_as_user"] is True
+    assert runtime["config"]["model"]["system_prompt_as_user"] is False
     assert runtime["semantic_review_enabled"] is True
     assert runtime["semantic_review_max_revisions"] == 2
     assert runtime["semantic_review_max_output_tokens"] == 3072
-    assert runtime["semantic_review_thinking_budget"] == 1024
+    assert runtime["semantic_review_thinking_budget"] is None
     assert runtime["semantic_review_max_contracts"] == 3
     assert runtime["semantic_review_max_risks"] == 3
     assert runtime["trace_redaction_mode"] == "paths"
@@ -77,3 +77,29 @@ def test_review_model_config_has_an_independent_output_and_thinking_budget():
     assert repair["max_tokens"] == 8192
     assert review["max_tokens"] == 2048
     assert review["thinking_budget"] == 512
+
+
+def test_review_model_config_does_not_invent_a_thinking_budget():
+    review = build_review_model_config(
+        {
+            "name": "kimi-k2.6",
+            "enable_thinking": True,
+            "thinking_budget": 4096,
+            "max_tokens": 8192,
+        },
+        {"max_output_tokens": 3072, "enable_thinking": True},
+    )
+
+    assert review["max_tokens"] == 3072
+    assert review["enable_thinking"] is True
+    assert "thinking_budget" not in review
+
+
+def test_review_model_config_removes_budget_when_thinking_is_disabled():
+    review = build_review_model_config(
+        {"enable_thinking": True, "thinking_budget": 4096},
+        {"enable_thinking": False},
+    )
+
+    assert review["enable_thinking"] is False
+    assert "thinking_budget" not in review

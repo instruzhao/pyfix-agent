@@ -43,7 +43,6 @@ DEFAULT_SEMANTIC_REVIEW_MAX_FEEDBACK_CHARS = 3000
 DEFAULT_SEMANTIC_REVIEW_MAX_RISKS = 3
 DEFAULT_SEMANTIC_REVIEW_MAX_CONTRACTS = 3
 DEFAULT_SEMANTIC_REVIEW_MAX_OUTPUT_TOKENS = 3072
-DEFAULT_SEMANTIC_REVIEW_THINKING_BUDGET = 1024
 DEFAULT_TRACE_REDACTION_MODE = "paths"
 DEFAULT_REPOSITORY_CONTEXT_ENABLED = True
 DEFAULT_REPOSITORY_CACHE_DIR = "outputs/index"
@@ -248,8 +247,10 @@ def resolve_runtime_config(project_root: Path, args: argparse.Namespace) -> dict
         "semantic_review_max_output_tokens": int(
             review_config.get("max_output_tokens", DEFAULT_SEMANTIC_REVIEW_MAX_OUTPUT_TOKENS)
         ),
-        "semantic_review_thinking_budget": int(
-            review_config.get("thinking_budget", DEFAULT_SEMANTIC_REVIEW_THINKING_BUDGET)
+        "semantic_review_thinking_budget": (
+            int(review_config["thinking_budget"])
+            if review_config.get("thinking_budget") is not None
+            else None
         ),
         "repository_context_enabled": (
             bool(args.repository_context)
@@ -311,11 +312,9 @@ def build_review_model_config(model_config: dict, review_config: dict) -> dict:
     configured["enable_thinking"] = _as_bool(
         review_config.get("enable_thinking", model_config.get("enable_thinking", False))
     )
-    if configured["enable_thinking"]:
-        configured["thinking_budget"] = max(
-            1,
-            int(review_config.get("thinking_budget", DEFAULT_SEMANTIC_REVIEW_THINKING_BUDGET)),
-        )
+    thinking_budget = review_config.get("thinking_budget")
+    if configured["enable_thinking"] and thinking_budget is not None:
+        configured["thinking_budget"] = max(1, int(thinking_budget))
     else:
         configured.pop("thinking_budget", None)
     return configured

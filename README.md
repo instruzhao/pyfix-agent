@@ -6,7 +6,7 @@ It is a prototype for demonstrating the repair loop and traceability. It is not 
 
 ## Overview
 
-The default v0.6.2 workflow is transactional, repository-aware, review-gated, and cost-observable:
+The default v0.6.3 workflow is transactional, repository-aware, review-gated, and cost-observable:
 
     create a temporary Git worktree
     run the configured pytest command
@@ -77,7 +77,7 @@ Copy `.env.example` to `.env` and set the API key required by your model provide
 
     DASHSCOPE_API_KEY=your_api_key_here
 
-The default configured model is `qwen3.6-max-preview`.
+The default configured model is `kimi-k2.6` through the DashScope OpenAI-compatible endpoint. Thinking mode is enabled without a Qwen-only `thinking_budget` parameter.
 
 Then reset the examples and run the default configured workspace:
 
@@ -217,6 +217,8 @@ v0.6.1 adds an execution-free Python repository index, direct import/importer ex
 
 v0.6.2 expands the benchmark to 24 cases, adds nine multi-module context-ground-truth fixtures, paired repository-on/off runs, separate repair/review costs, bounded reviewer generation, documented-contract checks, and trace privacy modes. Its final-code qualification completed 19/19 full successes, including all nine new cases; five additional existing cases remain explicitly incomplete after provider quota exhaustion. See `docs/v0.6.2.md` for the release notes and `docs/results/v0.6.2-qwen3.6-max-preview.md` for the sanitized evidence.
 
+v0.6.3 changes the default DashScope model to `kimi-k2.6` and makes thinking controls provider-safe. Kimi uses thinking mode without the Qwen-only `thinking_budget`, while an explicitly configured Qwen repair or reviewer can still send its own budget. This local release makes no new real-model quality claim. See `docs/v0.6.3.md` for details.
+
 ## Limitations
 
 - Not a production-grade sandbox.
@@ -239,4 +241,4 @@ Future work is listed in `docs/roadmap.md`. Items there are not implemented unle
 
 ## Project Status
 
-PyFixAgent v0.6.2 is a transactional local repair baseline with constrained edits, temporary-worktree execution, semantic rollback/retry, bounded static repository context, independently budgeted candidate review, paired context evaluation, holdout validation, cost accounting, and configurable trace privacy. It remains intended for trusted Python projects: a Git worktree protects the selected checkout from repair mutations but is not a security sandbox, and container isolation is the next major boundary.
+PyFixAgent v0.6.3 is a transactional local repair baseline with constrained edits, temporary-worktree execution, semantic rollback/retry, bounded static repository context, provider-safe independently configured candidate review, paired context evaluation, holdout validation, cost accounting, and configurable trace privacy. It remains intended for trusted Python projects: a Git worktree protects the selected checkout from repair mutations but is not a security sandbox, and container isolation is the next major boundary.
