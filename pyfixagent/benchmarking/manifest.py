@@ -93,7 +93,7 @@ def load_manifest(path: str | Path, project_root: str | Path) -> list[BenchmarkC
     return cases
 
 
-def validate_benchmark_cases(cases: list[BenchmarkCase], timeout: int = 60) -> list[dict]:
+def validate_benchmark_cases(cases: list[BenchmarkCase], timeout: int = 120) -> list[dict]:
     results: list[dict] = []
     for case in cases:
         reasons: list[str] = []
@@ -129,23 +129,29 @@ def validate_benchmark_cases(cases: list[BenchmarkCase], timeout: int = 60) -> l
                 env["PYTHONPYCACHEPREFIX"] = str(Path(temp_dir) / "pycache")
                 for hash_seed in ("0", "1"):
                     env["PYTHONHASHSEED"] = hash_seed
-                    completed = subprocess.run(
-                        [
-                            sys.executable,
-                            "-m",
-                            "pytest",
-                            "-q",
-                            "-p",
-                            "no:cacheprovider",
-                            f"--basetemp={Path(temp_dir) / hash_seed}",
-                        ],
-                        cwd=case.fixture,
-                        env=env,
-                        timeout=timeout,
-                        capture_output=True,
-                        text=True,
-                        check=False,
-                    )
+                    try:
+                        completed = subprocess.run(
+                            [
+                                sys.executable,
+                                "-m",
+                                "pytest",
+                                "-q",
+                                "-p",
+                                "no:cacheprovider",
+                                f"--basetemp={Path(temp_dir) / hash_seed}",
+                            ],
+                            cwd=case.fixture,
+                            env=env,
+                            timeout=timeout,
+                            capture_output=True,
+                            text=True,
+                            check=False,
+                        )
+                    except subprocess.TimeoutExpired:
+                        reasons.append(
+                            f"visible tests timed out after {timeout}s with PYTHONHASHSEED={hash_seed}"
+                        )
+                        continue
                     if completed.returncode == 0:
                         reasons.append(
                             f"failing baseline unexpectedly passes visible tests with PYTHONHASHSEED={hash_seed}"

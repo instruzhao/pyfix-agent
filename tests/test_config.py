@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from pyfixagent.main import (
     build_model_extra_body,
     build_review_model_config,
@@ -7,6 +9,8 @@ from pyfixagent.main import (
     parse_args,
     resolve_runtime_config,
 )
+from pyfixagent.sandbox.container_sandbox import ContainerSandbox
+from pyfixagent.sandbox.factory import build_sandbox
 
 
 def test_default_config_matches_documented_defaults():
@@ -23,6 +27,9 @@ def test_default_config_matches_documented_defaults():
     assert runtime["context_fallback_to_full"] is True
     assert runtime["context_include_tests"] is True
     assert runtime["isolate_workspace"] is True
+    assert runtime["sandbox_backend"] == "local"
+    assert runtime["sandbox_config"]["container"]["network"] == "none"
+    assert runtime["sandbox_config"]["container"]["dependency_policy"] == "image_only"
     assert runtime["test_commands"] == (("python", "-m", "pytest", "-p", "no:cacheprovider"),)
     assert runtime["config"]["model"]["name"] == "deepseek-v4-flash"
     assert runtime["config"]["model"]["temperature"] == 1.0
@@ -54,6 +61,32 @@ def test_cli_can_disable_repository_context():
     runtime = resolve_runtime_config(project_root, parse_args(["--no-repository-context"]))
 
     assert runtime["repository_context_enabled"] is False
+
+
+def test_cli_can_select_container_sandbox_without_changing_config(tmp_path):
+    project_root = Path(__file__).resolve().parents[1]
+    runtime = resolve_runtime_config(project_root, parse_args(["--sandbox-backend", "container"]))
+
+    sandbox = build_sandbox(
+        tmp_path,
+        runtime["sandbox_config"],
+        backend_override=runtime["sandbox_backend"],
+    )
+
+    assert runtime["sandbox_backend"] == "container"
+    assert isinstance(sandbox, ContainerSandbox)
+    assert sandbox.policy.network == "none"
+    assert sandbox.policy.read_only_root is True
+
+
+def test_container_sandbox_rejects_in_place_execution():
+    project_root = Path(__file__).resolve().parents[1]
+
+    with pytest.raises(ValueError, match="in-place"):
+        resolve_runtime_config(
+            project_root,
+            parse_args(["--sandbox-backend", "container", "--in-place"]),
+        )
 
 
 def test_system_prompt_message_mode_parses_string_booleans():

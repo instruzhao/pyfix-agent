@@ -22,7 +22,7 @@ from pyfixagent.review.reviewer import SemanticReviewer
 from pyfixagent.repository.cache import RepositoryIndexStore
 from pyfixagent.repository.indexer import RepositoryIndexer
 from pyfixagent.repository.service import RepositoryIndexService
-from pyfixagent.sandbox.local_sandbox import LocalSandbox
+from pyfixagent.sandbox.base import Sandbox
 from pyfixagent.schemas import AgentResult
 from pyfixagent.tools.edit_policy import EditPolicy
 
@@ -33,7 +33,7 @@ class DefaultAgent:
     def __init__(
         self,
         model: BaseModel,
-        sandbox: LocalSandbox,
+        sandbox: Sandbox,
         patch_output_dir: Path,
         max_iterations: int = 1,
         initial_mode: str = "replacement",
@@ -70,6 +70,8 @@ class DefaultAgent:
             raise ValueError("initial_mode must be 'patch' or 'replacement'")
         if context_strategy not in {"full", "traceback"}:
             raise ValueError("context_strategy must be 'full' or 'traceback'")
+        if getattr(sandbox, "backend", "local") == "container" and not isolate_workspace:
+            raise ValueError("container sandbox requires an isolated temporary Git worktree")
         self.model = model
         self.sandbox = sandbox
         self.patch_output_dir = Path(patch_output_dir)

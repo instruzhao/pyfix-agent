@@ -12,6 +12,7 @@ from pyfixagent.benchmarking.metrics import summarize_runs
 from pyfixagent.benchmarking.workspace import HoldoutEvaluator, IsolatedWorkspaceFactory
 from pyfixagent.main import save_trace
 from pyfixagent.models.base import BaseModel
+from pyfixagent.sandbox.base import Sandbox
 from pyfixagent.sandbox.local_sandbox import LocalSandbox
 
 
@@ -22,6 +23,7 @@ def run_benchmark(
     output_dir: Path,
     model_factory: Callable[[], BaseModel],
     review_model_factory: Callable[[], BaseModel] | None = None,
+    sandbox_factory: Callable[[Path], Sandbox] | None = None,
     repeat: int = 5,
     strategy_override: tuple[str, ...] = (),
     keep_workspaces: bool = False,
@@ -55,7 +57,13 @@ def run_benchmark(
     output_dir.mkdir(parents=True, exist_ok=True)
     trace_dir = output_dir / "traces"
     workspaces = IsolatedWorkspaceFactory(project_root, output_dir)
-    holdout_evaluator = HoldoutEvaluator(sandbox_timeout)
+    effective_sandbox_factory = sandbox_factory or (
+        lambda workspace: LocalSandbox(workspace, timeout_seconds=sandbox_timeout)
+    )
+    holdout_evaluator = HoldoutEvaluator(
+        sandbox_timeout,
+        sandbox_factory=effective_sandbox_factory,
+    )
     runs: list[dict] = []
     effective_repository_modes = repository_modes or (repository_context_enabled,)
     effective_repository_modes = tuple(dict.fromkeys(bool(item) for item in effective_repository_modes))
@@ -72,7 +80,7 @@ def run_benchmark(
                         workspace = workspaces.prepare(case, strategy, repetition, variant)
                         agent = DefaultAgent(
                             model=model_factory(),
-                            sandbox=LocalSandbox(workspace, timeout_seconds=sandbox_timeout),
+                            sandbox=effective_sandbox_factory(workspace),
                             patch_output_dir=output_dir / "patches",
                             max_iterations=case.max_iterations,
                             initial_mode=case.mode,

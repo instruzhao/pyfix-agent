@@ -20,6 +20,7 @@ from pyfixagent.main import (
 from pyfixagent.execution.test_policy import normalize_test_commands
 from pyfixagent.models.base import BaseModel
 from pyfixagent.models.litellm_model import LiteLLMModel
+from pyfixagent.sandbox.factory import SANDBOX_BACKENDS, build_sandbox
 from pyfixagent.utils.config import load_config
 from pyfixagent.trace_redaction import TRACE_REDACTION_MODES
 
@@ -35,6 +36,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--output-dir", default="outputs/benchmarks")
     parser.add_argument("--list", action="store_true", dest="list_cases")
     parser.add_argument("--validate", action="store_true", dest="validate_cases")
+    parser.add_argument(
+        "--validation-timeout",
+        type=int,
+        default=120,
+        help="Per-seed fixture validation timeout in seconds.",
+    )
     parser.add_argument("--keep-workspaces", action="store_true")
     parser.add_argument(
         "--repository-mode",
@@ -44,6 +51,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Run with repository context on or off; specify both for paired A/B runs.",
     )
     parser.add_argument("--trace-redaction", choices=sorted(TRACE_REDACTION_MODES))
+    parser.add_argument(
+        "--sandbox-backend",
+        choices=sorted(SANDBOX_BACKENDS),
+        help="Test and holdout execution backend; overrides sandbox.backend.",
+    )
     return parser.parse_args(argv)
 
 
@@ -70,7 +82,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{case.case_id}\t{source}\tholdout={holdout}\ttags={tags}")
         return 0
     if args.validate_cases:
-        results = validate_benchmark_cases(cases)
+        results = validate_benchmark_cases(cases, timeout=max(1, args.validation_timeout))
         for result in results:
             status = "ok" if result["valid"] else "invalid"
             print(f"{result['case_id']}\t{status}\t{result['reason']}")
@@ -83,6 +95,7 @@ def main(argv: list[str] | None = None) -> int:
     repository_config = config.get("repository", {})
     context_config = config.get("context", {})
     trace_config = config.get("trace", {})
+    sandbox_config = config.get("sandbox", {})
 
     def model_factory() -> BaseModel:
         api_key_env = model_config.get("api_key_env")
@@ -113,16 +126,25 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     output_dir = resolve(project_root, args.output_dir)
+
+    def sandbox_factory(workspace: Path):
+        return build_sandbox(
+            workspace,
+            sandbox_config,
+            backend_override=args.sandbox_backend,
+        )
+
     report = run_benchmark(
         cases=cases,
         project_root=project_root,
         output_dir=output_dir,
         model_factory=model_factory,
         review_model_factory=review_model_factory,
+        sandbox_factory=sandbox_factory,
         repeat=args.repeat,
         strategy_override=tuple(args.strategies or ()),
         keep_workspaces=args.keep_workspaces,
-        sandbox_timeout=int(config.get("sandbox", {}).get("timeout_seconds", 30)),
+        sandbox_timeout=int(sandbox_config.get("timeout_seconds", 30)),
         context_line_window=int(context_config.get("line_window", 25)),
         context_max_files=int(context_config.get("max_files", 6)),
         context_max_expansion_level=int(context_config.get("max_expansion_level", 2)),

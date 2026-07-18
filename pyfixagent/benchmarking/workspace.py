@@ -5,9 +5,12 @@ from pathlib import Path
 import shutil
 import stat
 import subprocess
-import sys
+import tempfile
+from typing import Callable
 
 from pyfixagent.benchmarking.contracts import BenchmarkCase
+from pyfixagent.sandbox.base import Sandbox
+from pyfixagent.sandbox.local_sandbox import LocalSandbox
 
 
 class IsolatedWorkspaceFactory:
@@ -103,29 +106,55 @@ class IsolatedWorkspaceFactory:
 class HoldoutEvaluator:
     """Runs external tests that are never included in the agent context."""
 
-    def __init__(self, timeout: int):
+    def __init__(
+        self,
+        timeout: int,
+        sandbox_factory: Callable[[Path], Sandbox] | None = None,
+    ):
         self.timeout = timeout
+        self.sandbox_factory = sandbox_factory or (
+            lambda workspace: LocalSandbox(workspace, timeout_seconds=timeout)
+        )
 
     def run(self, case: BenchmarkCase, workspace: Path) -> dict:
         if case.holdout_path is None:
             return {"evaluated": False, "success": None, "exit_code": None, "output": ""}
-        env = os.environ.copy()
-        env["PYTHONDONTWRITEBYTECODE"] = "1"
-        env["PYTHONPATH"] = os.pathsep.join(
-            item for item in (str(workspace), env.get("PYTHONPATH", "")) if item
-        )
-        completed = subprocess.run(
-            [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", str(case.holdout_path)],
-            cwd=workspace,
-            env=env,
-            timeout=self.timeout,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        return {
-            "evaluated": True,
-            "success": completed.returncode == 0,
-            "exit_code": completed.returncode,
-            "output": (completed.stdout + completed.stderr)[-8000:],
-        }
+        workspace = Path(workspace).resolve()
+        temporary_root = Path(
+            tempfile.mkdtemp(prefix=".pyfixagent-holdout-", dir=workspace)
+        ).resolve()
+        try:
+            source = Path(case.holdout_path)
+            target = temporary_root / source.name
+            if source.is_dir():
+                shutil.copytree(
+                    source,
+                    target,
+                    ignore=shutil.ignore_patterns("__pycache__", "*.pyc", ".pytest_cache"),
+                )
+            else:
+                shutil.copy2(source, target)
+            sandbox = self.sandbox_factory(workspace)
+            relative_target = target.relative_to(workspace).as_posix()
+            command = [
+                "python",
+                "-m",
+                "pytest",
+                "-q",
+                "-p",
+                "no:cacheprovider",
+                f"--basetemp={sandbox.pytest_basetemp(temporary_root, 0)}",
+                relative_target,
+            ]
+            completed = sandbox.run(command, timeout=self.timeout)
+            return {
+                "evaluated": True,
+                "success": completed.exit_code == 0,
+                "exit_code": completed.exit_code,
+                "output": (completed.stdout + completed.stderr)[-8000:],
+                "backend": completed.backend,
+                "timeout": completed.timeout,
+            }
+        finally:
+            if temporary_root.exists():
+                shutil.rmtree(temporary_root, onerror=IsolatedWorkspaceFactory._remove_readonly)

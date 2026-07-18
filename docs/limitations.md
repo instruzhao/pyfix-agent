@@ -2,9 +2,11 @@
 
 PyFixAgent is intentionally scoped as a local prototype for small Python projects. The following limits are current project boundaries, not hidden bugs.
 
-## Not Production-grade Sandbox
+## Container Isolation Is Not VM Isolation
 
-The sandbox is a local command runner with command policy checks and subprocess timeouts. It does not provide container isolation, filesystem isolation, network isolation, CPU limits, memory limits, or hardening for untrusted code.
+The default local backend is a host subprocess runner and is intended only for trusted projects. The optional v0.7.0 container backend disables network access by default, mounts only the disposable repair worktree, uses a read-only root and bounded tmpfs, drops capabilities, disables privilege escalation, runs as a non-root UID, and enforces CPU, memory, PID, and time limits. These controls reduce exposure but do not provide a separate kernel, VM-grade isolation, or a guarantee against container/runtime vulnerabilities.
+
+Container execution requires a running Docker or Podman daemon and a reviewed runner image. Platform bind-mount semantics and daemon configuration remain operator responsibilities. The distributed image recipe uses pinned Python package versions, while the resolved image digest/ID is captured at runtime when available.
 
 ## Designed for Small Python Projects
 
@@ -12,7 +14,7 @@ The agent is meant for small local Python workspaces where pytest output and a f
 
 ## Git Workspace Model
 
-The CLI requires a Git repository with a HEAD commit and requires a clean selected workspace by default. v0.5 repairs a detached temporary worktree, checkpoints accepted iterations, rolls back regressions, exports a patch, and removes the worktree. This protects the selected checkout from repair mutations, but it does not isolate executed code from the host. `--in-place` and `--allow-dirty` are explicit compatibility escape hatches with weaker guarantees.
+The CLI requires a Git repository with a HEAD commit and requires a clean selected workspace by default. It repairs a detached temporary worktree, checkpoints accepted iterations, rolls back regressions, exports a patch, and removes the worktree. Container execution requires that isolated worktree and cannot be combined with `--in-place`. Local `--in-place` and `--allow-dirty` remain compatibility escape hatches with weaker guarantees.
 
 ## pytest Is the Main Validation Signal
 
@@ -43,3 +45,5 @@ Generation parameters are provider-specific. The default configuration avoids se
 ## Trace Sensitivity
 
 Path-redacted traces may still contain source code, pytest logs, model outputs, credentials embedded in source, and other sensitive text. Safe mode hashes known source-bearing fields but is not a general secret detector and cannot guarantee that every sensitive value is removed from normalized errors or metadata. Review traces before publishing them.
+
+The static trace viewer embeds the selected trace data into a standalone HTML file. It escapes content and uses a restrictive content-security policy, but the resulting file retains whatever sensitive data remains in the input. Generate viewers with `--redaction safe` and review the privacy audit before sharing.

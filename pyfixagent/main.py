@@ -9,7 +9,7 @@ from pprint import pprint
 from pyfixagent.agent.default_agent import DefaultAgent
 from pyfixagent.models.litellm_model import LiteLLMModel
 from pyfixagent.execution.test_policy import normalize_test_commands
-from pyfixagent.sandbox.local_sandbox import LocalSandbox
+from pyfixagent.sandbox.factory import SANDBOX_BACKENDS, build_sandbox
 from pyfixagent.schemas import AgentResult
 from pyfixagent.trace import collect_environment, final_summary
 from pyfixagent.trace_redaction import TRACE_REDACTION_MODES, TraceRedactor
@@ -51,6 +51,7 @@ DEFAULT_REPOSITORY_MAX_FILE_BYTES = 1_000_000
 DEFAULT_REPOSITORY_MAX_GRAPH_DEPTH = 2
 DEFAULT_REPOSITORY_MAX_RELATED_FILES = 6
 DEFAULT_REPOSITORY_MAX_SNIPPET_LINES = 200
+DEFAULT_SANDBOX_BACKEND = "local"
 
 
 def load_dotenv_file(path: Path) -> None:
@@ -117,6 +118,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Repair the selected workspace in place instead of using a temporary Git worktree.",
     )
     parser.add_argument(
+        "--sandbox-backend",
+        choices=sorted(SANDBOX_BACKENDS),
+        help="Test execution backend. Overrides sandbox.backend in config.",
+    )
+    parser.add_argument(
         "--allowed-path",
         action="append",
         dest="allowed_paths",
@@ -172,6 +178,19 @@ def resolve_runtime_config(project_root: Path, args: argparse.Namespace) -> dict
     trace_config = config.get("trace", {})
 
     workspace = _resolve_path(project_root, args.workspace or paths_config.get("workspace", DEFAULT_WORKSPACE))
+    sandbox_backend = str(
+        getattr(args, "sandbox_backend", None)
+        or sandbox_config.get("backend", DEFAULT_SANDBOX_BACKEND)
+    ).strip().lower()
+    if sandbox_backend not in SANDBOX_BACKENDS:
+        raise ValueError(f"sandbox backend must be one of: {', '.join(sorted(SANDBOX_BACKENDS))}")
+    isolate_workspace = (
+        False
+        if getattr(args, "in_place", False)
+        else _as_bool(safety_config.get("isolate_workspace", DEFAULT_ISOLATE_WORKSPACE))
+    )
+    if sandbox_backend == "container" and not isolate_workspace:
+        raise ValueError("container sandbox cannot be combined with --in-place")
     return {
         "config_path": config_path,
         "config": config,
@@ -205,6 +224,8 @@ def resolve_runtime_config(project_root: Path, args: argparse.Namespace) -> dict
         ),
         "context_include_tests": _as_bool(context_config.get("include_tests", DEFAULT_CONTEXT_INCLUDE_TESTS)),
         "sandbox_timeout": int(sandbox_config.get("timeout_seconds", 30)),
+        "sandbox_backend": sandbox_backend,
+        "sandbox_config": sandbox_config,
         "require_clean_workspace": (
             False
             if getattr(args, "allow_dirty", False)
@@ -215,11 +236,7 @@ def resolve_runtime_config(project_root: Path, args: argparse.Namespace) -> dict
         ),
         "max_changed_files": int(safety_config.get("max_changed_files", DEFAULT_MAX_CHANGED_FILES)),
         "max_changed_lines": int(safety_config.get("max_changed_lines", DEFAULT_MAX_CHANGED_LINES)),
-        "isolate_workspace": (
-            False
-            if getattr(args, "in_place", False)
-            else _as_bool(safety_config.get("isolate_workspace", DEFAULT_ISOLATE_WORKSPACE))
-        ),
+        "isolate_workspace": isolate_workspace,
         "test_commands": normalize_test_commands(test_config.get("commands")),
         "semantic_review_enabled": (
             bool(args.semantic_review)
@@ -356,9 +373,10 @@ def main(argv: list[str] | None = None) -> int:
         system_prompt_as_user=build_system_prompt_as_user(review_model_config),
     )
 
-    sandbox = LocalSandbox(
-        workspace=runtime["workspace"],
-        timeout_seconds=runtime["sandbox_timeout"],
+    sandbox = build_sandbox(
+        runtime["workspace"],
+        runtime["sandbox_config"],
+        backend_override=runtime["sandbox_backend"],
     )
 
     agent = DefaultAgent(

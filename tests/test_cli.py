@@ -21,6 +21,7 @@ def test_main_help_displays_cli_options():
     assert "--workspace" in completed.stdout
     assert "--mode" in completed.stdout
     assert "--context-strategy" in completed.stdout
+    assert "--sandbox-backend" in completed.stdout
 
 
 def test_cli_arguments_override_config(tmp_path):

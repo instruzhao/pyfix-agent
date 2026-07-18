@@ -43,6 +43,15 @@ def test_sandbox_blocks_dangerous_command(tmp_path):
     assert "dangerous" in result.stderr
 
 
+def test_sandbox_blocks_windows_executable_suffix_bypass(tmp_path):
+    sandbox = LocalSandbox(tmp_path)
+
+    result = sandbox.run(["C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe", "pytest"])
+
+    assert result.exit_code == 126
+    assert "powershell" in result.stderr
+
+
 def test_sandbox_runs_pytest(tmp_path):
     (tmp_path / "test_sample.py").write_text("def test_ok():\n    assert True\n", encoding="utf-8")
     sandbox = LocalSandbox(tmp_path)

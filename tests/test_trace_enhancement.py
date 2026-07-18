@@ -114,12 +114,14 @@ def test_environment_and_model_call_metadata_are_best_effort(tmp_path):
         max_tokens = 10
         timeout_seconds = 5
 
-    env = collect_environment(tmp_path)
+    env = collect_environment(tmp_path, execution={"backend": "container", "network": "none"})
     model_call = model_call_metadata(MiniModel(), duration_seconds=1.25)
 
     assert env["python"]
     assert env["platform"]
     assert env["workspace"] == str(tmp_path)
+    assert env["execution"]["backend"] == "container"
+    assert env["execution"]["network"] == "none"
     assert model_call["model"] == "mini"
     assert model_call["duration_seconds"] == 1.25
 

@@ -2,14 +2,14 @@
 
 PyFixAgent is a test-driven repair agent for local Python projects. It runs pytest, collects failure output, selects relevant source context, asks an LLM for a constrained code edit, applies the edit, reruns pytest, and records a structured trace of the repair attempt.
 
-It is a prototype for demonstrating the repair loop and traceability. It is not a production-grade coding agent, sandbox, benchmark platform, or general automated software engineering system.
+It is a prototype for demonstrating the repair loop, execution boundaries, and traceability. Its container backend reduces host exposure but is not a VM-grade security boundary or a production coding-agent platform.
 
 ## Overview
 
-The default v0.6.3 workflow is transactional, repository-aware, review-gated, and cost-observable:
+The v0.7.0 workflow is transactional, repository-aware, review-gated, execution-policy aware, and cost-observable:
 
     create a temporary Git worktree
-    run the configured pytest command
+    run the configured pytest command through a local or container sandbox
     collect failure output
     select traceback-driven context
     expand direct static dependencies under a token budget
@@ -21,6 +21,7 @@ The default v0.6.3 workflow is transactional, repository-aware, review-gated, an
     review visible-pass candidates for semantic risks
     perform bounded evidence-driven revisions
     export a candidate/final patch and remove the worktree
+    require digest-bound approval before applying it to the selected checkout
 
 The repository includes two resettable demo workspaces:
 
@@ -29,7 +30,7 @@ The repository includes two resettable demo workspaces:
 
 ## What PyFixAgent Does
 
-- Runs pytest inside a configured local workspace.
+- Runs pytest inside a configured local or container execution boundary.
 - Parses pytest failures and traceback output.
 - Selects relevant Python files using the default `traceback` context strategy.
 - Calls a LiteLLM-backed model.
@@ -62,6 +63,10 @@ The repository includes two resettable demo workspaces:
 - Paired repository-context A/B benchmarks with context recall and distractor metrics.
 - Separate repair/review token and latency accounting with a bounded reviewer model.
 - Configurable path or source-content trace redaction.
+- Optional ephemeral Docker/Podman execution with no network by default, a read-only root, a single temporary-worktree mount, dropped capabilities, no-new-privileges, and CPU/memory/PID/time limits.
+- Image-only dependency policy plus resolved image/runtime metadata in trace schema 1.5.
+- SHA-256-bound human approval before an exported patch can update a selected checkout.
+- Standalone, script-free HTML trace viewer with a privacy audit.
 
 ## Quick Start
 
@@ -83,6 +88,13 @@ Then reset the examples and run the default configured workspace:
 
     python scripts/reset_demo.py --all
     python -m pyfixagent.main
+
+The compatibility default is the local backend. To build and use the v0.7.0 container runner:
+
+    docker build -f containers/Dockerfile -t pyfixagent-runner:0.7.0 .
+    python -m pyfixagent.main --sandbox-backend container
+
+The container path requires a running Docker or Podman daemon. Runtime package installation is disabled; dependencies must be present in the configured image.
 
 ## Example Commands
 
@@ -134,7 +146,15 @@ Configuration priority is:
 
 By default, the CLI refuses to run when the selected workspace contains uncommitted changes. Use `--allow-dirty` only when mixing an agent run with existing changes is intentional. Use one or more `--allowed-path` arguments to enforce source-root boundaries.
 
-The CLI repairs a detached temporary Git worktree and exports the final patch under `outputs/patches/`; it does not modify the selected workspace. `--in-place` is an explicit compatibility escape hatch for trusted workflows that require the previous behavior.
+The CLI repairs a detached temporary Git worktree and exports the final patch under `outputs/patches/`; it does not modify the selected workspace. `--in-place` is an explicit compatibility escape hatch for trusted local workflows and cannot be combined with the container backend.
+
+Applying an exported patch is a two-step operation. The first command validates the clean checkout, edit policy, and patch, then prints the SHA-256 without changing files:
+
+    pyfixagent-apply --workspace workspaces/demo_project --patch outputs/patches/final_xxx.patch --allowed-path src
+
+After inspecting the patch, repeat the command with the exact printed digest:
+
+    pyfixagent-apply --workspace workspaces/demo_project --patch outputs/patches/final_xxx.patch --allowed-path src --approve <SHA-256>
 
 Test commands are configured as argv lists rather than shell strings:
 
@@ -188,6 +208,10 @@ You can summarize a structured trace JSON with:
 
 The summary reports final status, iteration count, failure deltas, selected context size, modified files, and model metadata.
 
+Audit and render a standalone static viewer. `safe` redaction is recommended before sharing the HTML:
+
+    pyfixagent-trace-viewer outputs/traces/run_xxx.json --redaction safe --fail-on-audit
+
 ## Demo Benchmark
 
 v0.2.2 includes a small benchmark comparing traceback-driven context selection with full-workspace context on resettable demo workspaces. The benchmark tracks prompt size, selected files, iterations, failure deltas, modified files, and final test status.
@@ -217,11 +241,13 @@ v0.6.1 adds an execution-free Python repository index, direct import/importer ex
 
 v0.6.2 expands the benchmark to 24 cases, adds nine multi-module context-ground-truth fixtures, paired repository-on/off runs, separate repair/review costs, bounded reviewer generation, documented-contract checks, and trace privacy modes. Its final-code qualification completed 19/19 full successes, including all nine new cases; five additional existing cases remain explicitly incomplete after provider quota exhaustion. See `docs/v0.6.2.md` for the release notes and `docs/results/v0.6.2-qwen3.6-max-preview.md` for the sanitized evidence.
 
-v0.6.3 changes the default DashScope model to `kimi-k2.6` and makes thinking controls provider-safe. Kimi uses thinking mode without the Qwen-only `thinking_budget`, while an explicitly configured Qwen repair or reviewer can still send its own budget. This local release makes no new real-model quality claim. See `docs/v0.6.3.md` for details.
+v0.6.3 makes thinking controls provider-safe and changes the final local default to `deepseek-v4-flash` after a real repair smoke test. The generic repair/review workflow remains model-independent, and explicitly configured compatible providers can still use their own thinking budgets. See `docs/v0.6.3.md` for details.
+
+v0.7.0 adds a container-backed execution boundary, resource and network policies, image-only dependency capture, digest-bound patch approval, trace schema 1.5 execution metadata, privacy audit, and a static HTML trace viewer. See `docs/v0.7.0.md` for details.
 
 ## Limitations
 
-- Not a production-grade sandbox.
+- The local backend is not a security sandbox; the container backend is defense in depth, not VM-grade isolation.
 - Designed for small local Python projects.
 - pytest is the main validation signal.
 - Repository understanding is static, Python-only, and bounded.
@@ -241,4 +267,4 @@ Future work is listed in `docs/roadmap.md`. Items there are not implemented unle
 
 ## Project Status
 
-PyFixAgent v0.6.3 is a transactional local repair baseline with constrained edits, temporary-worktree execution, semantic rollback/retry, bounded static repository context, provider-safe independently configured candidate review, paired context evaluation, holdout validation, cost accounting, and configurable trace privacy. It remains intended for trusted Python projects: a Git worktree protects the selected checkout from repair mutations but is not a security sandbox, and container isolation is the next major boundary.
+PyFixAgent v0.7.0 is a transactional repair baseline with constrained edits, temporary-worktree execution, semantic rollback/retry, bounded static repository context, provider-safe review, holdout validation, cost accounting, configurable trace privacy, and an optional hardened container test boundary. Local execution remains available for compatibility. Container execution mounts only the disposable worktree and applies explicit resource policies; exported patches still require separate digest-bound approval before touching the selected checkout.

@@ -18,7 +18,20 @@ trace:
   redaction_mode: paths
 
 sandbox:
+  backend: local
   timeout_seconds: 30
+  container:
+    engine: docker
+    image: pyfixagent-runner:0.7.0
+    pull_policy: never
+    network: none
+    cpus: 1.0
+    memory: 1g
+    pids_limit: 128
+    read_only_root: true
+    tmpfs_size: 128m
+    user: "65534:65534"
+    dependency_policy: image_only
 
 test:
   commands:

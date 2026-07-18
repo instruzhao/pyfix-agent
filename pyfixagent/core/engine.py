@@ -82,6 +82,9 @@ class RepairEngine:
             print("[agent] running pytest before fix...")
             before = self.test_runner.run(state.workspace)
             state.test_output_before = before.output
+            if before.infrastructure_error:
+                state.error = "test execution infrastructure error; model was not called"
+                return self._to_result(state, patch_applied)
             if before.success:
                 print("[agent] tests already pass; no patch needed.")
                 state.success = True
@@ -222,6 +225,24 @@ class RepairEngine:
                     pytest_output=after.output,
                     success=state.success,
                 )
+                if after.infrastructure_error:
+                    state.success = False
+                    state.error = "test execution infrastructure error after applying repair"
+                    record.iteration_result = {
+                        "status": "execution_error",
+                        "failure_type": "execution_error",
+                        "reason": state.error,
+                    }
+                    if state.workspace_strategy == "temporary_git_worktree":
+                        self.workspace_session.rollback()
+                        record.workspace_action = "rolled_back_execution_error"
+                    else:
+                        record.workspace_action = "kept_in_place"
+                    record.context_expansion_level = context_plan.level
+                    record.trigger = trigger
+                    record.review_feedback_ids = list(active_review_ids)
+                    state.iterations.append(record)
+                    return self._to_result(state, patch_applied)
                 if state.success:
                     state.visible_success = True
                     checkpoint = self.workspace_session.checkpoint(iteration, kind="visible_candidate")
@@ -414,7 +435,10 @@ class RepairEngine:
             workspace_strategy=state.workspace_strategy,
             final_patch_command=self._final_patch_command(state, patch_applied),
             error=state.error,
-            environment=collect_environment(state.workspace),
+            environment=collect_environment(
+                state.workspace,
+                execution=self.test_runner.environment_metadata(),
+            ),
             workspace_state=state.workspace_state,
             final_patch_path=state.final_patch_path,
             visible_success=state.visible_success,
@@ -430,7 +454,10 @@ class RepairEngine:
     @staticmethod
     def _final_patch_command(state: AgentState, patch_applied: bool) -> str:
         if state.workspace_strategy == "temporary_git_worktree" and state.final_patch_path:
-            return f'git apply "{state.final_patch_path}"'
+            return (
+                f'pyfixagent-apply --workspace "{state.original_workspace}" '
+                f'--patch "{state.final_patch_path}"'
+            )
         if patch_applied and state.patch:
             return "git diff --"
         if state.patch:

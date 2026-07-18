@@ -162,7 +162,7 @@ def edit_summary(
     }
 
 
-def collect_environment(workspace: str | Path) -> dict:
+def collect_environment(workspace: str | Path, execution: dict | None = None) -> dict:
     try:
         import pytest
 
@@ -170,13 +170,16 @@ def collect_environment(workspace: str | Path) -> dict:
     except Exception:
         pytest_version = None
 
-    return {
+    environment = {
         "python": platform.python_version(),
         "platform": sys.platform,
         "pytest": pytest_version,
         "cwd": str(Path.cwd()),
         "workspace": str(workspace),
     }
+    if execution is not None:
+        environment["execution"] = execution
+    return environment
 
 
 def model_call_metadata(model: Any, duration_seconds: float | None = None) -> dict:
