@@ -70,25 +70,32 @@
 - deterministic enforcement check for explicit positive-input docstring contracts
 - configurable path and safe source-content trace redaction in trace schema 1.4
 
-## v0.6.3 Kimi Default and Provider-Safe Thinking — Completed
+## v0.6.3 Provider-Safe Thinking and DeepSeek Default — Completed
 
-- default DashScope model changed to `kimi-k2.6`
-- Kimi thinking mode configured without the Qwen-only `thinking_budget`
+- final default DashScope model changed to `deepseek-v4-flash`
+- generic thinking mode configured without the Qwen-only `thinking_budget`
 - standard system-role prompting restored for the default model
 - reviewer output remains independently bounded without inheriting repair-only thinking controls
 - explicit custom thinking budgets remain supported for compatible providers
 
-## Next: v0.7.0 Execution Isolation
+## v0.7.0 Execution Isolation — Completed
 
-- container-backed sandbox implementation behind the existing execution boundary
-- filesystem, network, process, CPU, memory, and timeout policies
-- explicit dependency installation policy and reproducible environment capture
-- human approval before applying exported patches to a selected checkout
-- trace redaction audit and a static trace viewer
+- stable local/container sandbox protocol used by CLI, benchmark visible tests, and holdouts
+- ephemeral container execution with filesystem, network, privilege, process, CPU, memory, and timeout policies
+- image-only dependency policy, pinned runner recipe, and resolved runtime/image environment capture
+- SHA-256-bound human approval before applying exported patches to a selected checkout
+- trace schema 1.5 execution metadata, privacy audit, and a script-free static trace viewer
+
+## Next: v0.7.1 Isolation Portability
+
+- real Docker and Podman CI smoke jobs on supported host platforms
+- published runner image with a pinned base-image digest and provenance metadata
+- reviewed dependency profiles for minimal and scientific Python projects
+- container startup/cache benchmarks and clearer daemon/image diagnostics
 
 ## Deferred
 
-- untrusted-code execution without container isolation
+- VM/microVM-grade hostile-code execution
 - Web UI
 - GitHub pull-request automation
 - vector database/RAG

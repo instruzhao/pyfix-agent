@@ -3,6 +3,7 @@ from pathlib import Path
 import subprocess
 
 import pytest
+import pyfixagent.benchmarking.manifest as manifest_module
 
 from pyfixagent.benchmark import (
     BenchmarkCase,
@@ -323,6 +324,7 @@ def test_fixture_run_uses_external_holdout_as_final_gate(tmp_path):
 
 def test_cli_defaults_to_five_independent_repetitions():
     assert parse_args([]).repeat == 5
+    assert parse_args([]).validation_timeout == 120
     assert "Only modify Python files" in build_generic_task(("src",))
     args = parse_args(["--tag", "multifile", "--repository-mode", "off", "--repository-mode", "on"])
     assert args.tags == ["multifile"]
@@ -351,6 +353,28 @@ def test_case_validation_requires_failing_visible_baseline_and_external_holdout(
     result = validate_benchmark_cases([case])[0]
 
     assert result["valid"] is True
+
+
+def test_case_validation_reports_timeout_instead_of_crashing(monkeypatch, tmp_path):
+    fixture = tmp_path / "fixture"
+    (fixture / "src").mkdir(parents=True)
+    (fixture / "tests").mkdir()
+    (fixture / "src" / "app.py").write_text("value = 1\n", encoding="utf-8")
+    (fixture / "tests" / "test_visible.py").write_text("def test_value():\n    assert False\n", encoding="utf-8")
+    holdout = tmp_path / "holdout"
+    holdout.mkdir()
+    (holdout / "test_holdout.py").write_text("def test_hidden():\n    assert True\n", encoding="utf-8")
+    case = BenchmarkCase(case_id="slow", allowed_paths=("src",), fixture=fixture, holdout_path=holdout)
+
+    def time_out(command, **kwargs):
+        raise subprocess.TimeoutExpired(command, kwargs["timeout"])
+
+    monkeypatch.setattr(manifest_module.subprocess, "run", time_out)
+
+    result = validate_benchmark_cases([case], timeout=1)[0]
+
+    assert result["valid"] is False
+    assert "timed out after 1s" in result["reason"]
 
 
 def test_fixture_copy_ignores_python_bytecode(tmp_path):

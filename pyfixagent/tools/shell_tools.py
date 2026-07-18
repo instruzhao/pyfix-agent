@@ -1,5 +1,5 @@
-from pyfixagent.sandbox.local_sandbox import CommandResult, LocalSandbox
+from pyfixagent.sandbox.base import CommandResult, Sandbox
 
 
-def run_pytest(sandbox: LocalSandbox) -> CommandResult:
+def run_pytest(sandbox: Sandbox) -> CommandResult:
     return sandbox.run(["python", "-m", "pytest", "-p", "no:cacheprovider"])

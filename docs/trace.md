@@ -4,7 +4,7 @@ PyFixAgent writes structured JSON traces so a repair run can be inspected withou
 
 ## Top-level Fields
 
-`trace_schema_version` identifies the trace contract. v0.3–v0.4 traces use schema `1.0`; v0.5 uses `1.1`; v0.6.0, v0.6.1, and v0.6.2 use `1.2`, `1.3`, and `1.4` respectively.
+`trace_schema_version` identifies the trace contract. v0.3–v0.4 traces use schema `1.0`; v0.5 uses `1.1`; v0.6.0, v0.6.1, v0.6.2, and v0.7.0 use `1.2`, `1.3`, `1.4`, and `1.5` respectively.
 
 `task` records the natural-language task given to the agent.
 
@@ -15,6 +15,8 @@ PyFixAgent writes structured JSON traces so a repair run can be inspected withou
 `iterations` is the ordered list of repair attempts. Most detailed fields are stored per iteration.
 
 `environment` records runtime information such as Python version, platform, cwd/workspace details, and pytest availability.
+
+Schema 1.5 adds `environment.execution`. Local execution records its host-process boundary. Container execution records the effective network/filesystem/resource/dependency policy, runtime and server version when available, requested image, and best-effort resolved digest or image ID.
 
 `workspace_state` records the Git root, starting revision, dirty flag, and changed paths observed before the run. It does not contain file contents.
 
@@ -81,6 +83,8 @@ Trace schema 1.2 adds `visible_success`, `acceptance_status`, `candidate_patch`,
 Trace schema 1.3 adds optional static repository context metadata. Existing fields are unchanged, and runs constructed with repository context disabled retain the previous context shape.
 
 Trace schema 1.4 adds repository snapshot/build/total timing and top-level `trace_redaction`. Redaction mode `none` records the historical payload, `paths` replaces known absolute roots, and `safe` replaces source-bearing strings with deterministic hash/length markers. `redacted_fields` identifies which field names were transformed. Redaction happens only while serializing the trace and does not alter the in-memory repair result or benchmark evaluation.
+
+Trace schema 1.5 adds execution-boundary metadata without changing prior repair/review fields. Use `pyfixagent-trace-viewer TRACE.json --redaction safe --fail-on-audit` to create a standalone HTML report. The viewer has no scripts or external assets, escapes embedded JSON, uses a restrictive content-security policy, and reports absolute-path or unsafe safe-mode fields. The audit is not a general secret scanner.
 
 ## Model Output
 

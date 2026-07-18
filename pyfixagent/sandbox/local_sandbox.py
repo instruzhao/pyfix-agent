@@ -1,27 +1,35 @@
-from dataclasses import dataclass
 import os
 from pathlib import Path
 import shutil
 import subprocess
 import time
 
+from pyfixagent.sandbox.base import CommandResult
 from pyfixagent.sandbox.policy import is_command_allowed
 
 
-@dataclass
-class CommandResult:
-    command: list[str]
-    exit_code: int
-    stdout: str
-    stderr: str
-    duration: float
-    timeout: bool = False
-
-
 class LocalSandbox:
+    backend = "local"
+
     def __init__(self, workspace: Path, timeout_seconds: int = 30):
         self.workspace = Path(workspace)
         self.timeout_seconds = timeout_seconds
+
+    def with_workspace(self, workspace: Path) -> "LocalSandbox":
+        return LocalSandbox(Path(workspace), timeout_seconds=self.timeout_seconds)
+
+    def pytest_basetemp(self, host_root: Path, index: int) -> str:
+        return str(Path(host_root) / f"command-{index}")
+
+    def environment_metadata(self) -> dict:
+        return {
+            "backend": self.backend,
+            "isolation": "host_process",
+            "timeout_seconds": self.timeout_seconds,
+            "network": "host",
+            "filesystem": "host",
+            "dependency_policy": "host_environment",
+        }
 
     def run(self, command: list[str], timeout: int | None = None) -> CommandResult:
         start = time.perf_counter()
@@ -36,6 +44,8 @@ class LocalSandbox:
                 stderr=reason or "command is not allowed",
                 duration=time.perf_counter() - start,
                 timeout=False,
+                backend=self.backend,
+                infrastructure_error=True,
             )
 
         try:
@@ -59,6 +69,8 @@ class LocalSandbox:
                 stderr=completed.stderr,
                 duration=time.perf_counter() - start,
                 timeout=False,
+                backend=self.backend,
+                runtime_command=list(command),
             )
         except subprocess.TimeoutExpired as exc:
             return CommandResult(
@@ -68,6 +80,8 @@ class LocalSandbox:
                 stderr=exc.stderr or f"command timed out after {timeout_seconds}s",
                 duration=time.perf_counter() - start,
                 timeout=True,
+                backend=self.backend,
+                runtime_command=list(command),
             )
         except Exception as exc:
             return CommandResult(
@@ -77,6 +91,9 @@ class LocalSandbox:
                 stderr=f"failed to run command: {exc}",
                 duration=time.perf_counter() - start,
                 timeout=False,
+                backend=self.backend,
+                runtime_command=list(command),
+                infrastructure_error=True,
             )
 
 

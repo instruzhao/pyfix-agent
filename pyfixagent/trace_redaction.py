@@ -71,6 +71,7 @@ class TraceRedactor:
     def _path_replacements(workspace: str | Path | None) -> tuple[tuple[str, str], ...]:
         raw: list[tuple[str, str]] = []
         if workspace:
+            raw.append((str(workspace), "<workspace>"))
             raw.append((str(Path(workspace).resolve()), "<workspace>"))
         raw.append((str(Path.cwd().resolve()), "<project-root>"))
         raw.append((str(Path.home().resolve()), "<home>"))

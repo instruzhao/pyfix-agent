@@ -5,6 +5,7 @@ import subprocess
 from pyfixagent.agent.default_agent import DefaultAgent
 from pyfixagent.main import save_trace
 from pyfixagent.models.mock_model import MockModel
+from pyfixagent.sandbox.base import CommandResult
 from pyfixagent.sandbox.local_sandbox import LocalSandbox
 
 
@@ -49,6 +50,42 @@ def divide_zero_patch():
 +        raise ValueError("division by zero")
      return a / b
 """
+
+
+def test_initial_execution_infrastructure_error_stops_before_model_call(tmp_path):
+    workspace = init_workspace(
+        tmp_path,
+        "def divide(a, b):\n    return a / b\n",
+        pytest_test_for_divide(),
+    )
+    model = MockModel([])
+
+    class BrokenSandbox(LocalSandbox):
+        def run(self, command, timeout=None):
+            return CommandResult(
+                command=list(command),
+                exit_code=125,
+                stdout="",
+                stderr="container daemon unavailable",
+                duration=0.01,
+                backend="container",
+                infrastructure_error=True,
+            )
+
+    agent = DefaultAgent(
+        model=model,
+        sandbox=BrokenSandbox(workspace),
+        patch_output_dir=tmp_path / "patches",
+        max_iterations=1,
+        initial_mode="patch",
+    )
+
+    result = agent.run("Fix tests.")
+
+    assert result.success is False
+    assert "infrastructure error" in result.error
+    assert model.calls == 0
+    assert result.iterations == []
 
 
 def test_first_patch_success_and_pytest_passes(tmp_path):
@@ -397,7 +434,8 @@ def test_isolated_agent_exports_patch_and_preserves_original_workspace(tmp_path)
     assert result.final_patch_path
     assert Path(result.final_patch_path).exists()
     assert "raise ValueError" in result.patch
-    assert result.final_patch_command.startswith("git apply")
+    assert result.final_patch_command.startswith("pyfixagent-apply --workspace")
+    assert "--approve" not in result.final_patch_command
     assert (workspace / "calculator.py").read_text(encoding="utf-8") == original
     assert subprocess.run(
         ["git", "status", "--porcelain"],

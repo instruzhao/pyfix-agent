@@ -23,7 +23,7 @@ The project is built for inspectability. A user should be able to see what tests
 PyFixAgent is not trying to be a production coding agent. The current scope excludes:
 
 - Web UI
-- Docker sandbox
+- VM or microVM isolation
 - GitHub PR or issue integration
 - RAG or vector database
 - multi-model voting
@@ -139,6 +139,8 @@ The v0.2.2 benchmark compares these two context strategies on the resettable dem
 
 Structured trace records each repair attempt as data instead of only text logs. It includes test summaries, failure deltas, selected context metadata, model output parsing, apply status, generated diffs, edit summaries, model call metadata, environment information, and final summary.
 
+Trace schema 1.5 nests execution metadata under `environment.execution`. Local traces identify host-process execution. Container traces retain the effective resource/network policy, requested image, resolved image digest or ID when available, runtime, and runtime version. The standalone viewer is script-free, escapes embedded JSON, applies a restrictive content-security policy, and reports path/source-redaction findings before a trace is shared.
+
 The trace is useful because it separates different failure modes:
 
 - model output could not be parsed
@@ -150,9 +152,19 @@ The trace is useful because it separates different failure modes:
 
 ## Sandbox Boundary
 
-The local sandbox is a command runner with a command policy and subprocess timeout. It is not a production security sandbox.
+`Sandbox` is the stable test-execution protocol. It owns command execution, workspace rebinding, pytest temporary paths, and environment metadata. `TestRunner`, the main CLI, benchmark visible tests, and external holdouts depend on this protocol instead of constructing `LocalSandbox` internally.
 
-It does not provide container isolation, filesystem isolation, network isolation, CPU limits, memory limits, or untrusted-code hardening. It is intended for local demos and trusted small workspaces.
+`LocalSandbox` remains the compatibility default. It runs a policy-checked subprocess on the host, disables bytecode writes, and enforces a timeout; it is suitable only for trusted projects.
+
+`ContainerSandbox` starts one ephemeral Docker or Podman container per test command. It requires the repair engine's temporary Git worktree and mounts only that disposable workspace at `/workspace`. Its default policy disables networking, makes the container root read-only, provides a bounded no-exec `/tmp`, drops all Linux capabilities, enables no-new-privileges, runs as a non-root UID, and limits CPU, memory, PIDs, and wall time. A timed-out container is force-removed by its generated name. The host repository, model credentials, and host environment are not passed into the container.
+
+Dependencies follow an `image_only` policy: runtime installation commands are rejected and the runner image is built from `containers/requirements.lock`. Trace metadata captures the requested image and best-effort resolved digest/ID. Operators who need other dependencies must build a reviewed image and select it in configuration.
+
+This is defense in depth, not a claim that a shared-kernel container is equivalent to a VM, microVM, or fully hardened hostile-code service. Docker/Podman daemon security, kernel vulnerabilities, image provenance, and platform-specific bind-mount behavior remain operator responsibilities.
+
+## Patch Approval Boundary
+
+An isolated repair exports a patch but never applies it to the selected checkout. The result points to `pyfixagent-apply`, not raw `git apply`. The apply CLI requires a clean Git workspace, reruns patch-format, path, suffix, forbidden-test, file-count, changed-line, and `git apply --check` validation, then prints the SHA-256 of the exact cleaned patch and exits without mutation. A second invocation must supply that exact digest through `--approve`; any patch or workspace change invalidates the approval. Applied changes remain uncommitted for normal human review.
 
 ## Workspace Safety Rules
 
