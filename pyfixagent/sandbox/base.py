@@ -16,6 +16,8 @@ class CommandResult:
     backend: str = "local"
     runtime_command: list[str] = field(default_factory=list)
     infrastructure_error: bool = False
+    output_truncated: bool = False
+    policy_violation: str | None = None
 
 
 class Sandbox(Protocol):

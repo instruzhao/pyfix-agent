@@ -56,6 +56,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         choices=sorted(SANDBOX_BACKENDS),
         help="Test and holdout execution backend; overrides sandbox.backend.",
     )
+    parser.add_argument(
+        "--container-image",
+        help="Prebuilt runner image; overrides sandbox.container.image.",
+    )
     return parser.parse_args(argv)
 
 
@@ -132,6 +136,7 @@ def main(argv: list[str] | None = None) -> int:
             workspace,
             sandbox_config,
             backend_override=args.sandbox_backend,
+            container_image_override=args.container_image,
         )
 
     report = run_benchmark(

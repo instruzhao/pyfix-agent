@@ -51,7 +51,7 @@ DEFAULT_REPOSITORY_MAX_FILE_BYTES = 1_000_000
 DEFAULT_REPOSITORY_MAX_GRAPH_DEPTH = 2
 DEFAULT_REPOSITORY_MAX_RELATED_FILES = 6
 DEFAULT_REPOSITORY_MAX_SNIPPET_LINES = 200
-DEFAULT_SANDBOX_BACKEND = "local"
+DEFAULT_SANDBOX_BACKEND = "container"
 
 
 def load_dotenv_file(path: Path) -> None:
@@ -120,7 +120,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--sandbox-backend",
         choices=sorted(SANDBOX_BACKENDS),
-        help="Test execution backend. Overrides sandbox.backend in config.",
+        help="Test execution backend. Use local only for trusted projects.",
+    )
+    parser.add_argument(
+        "--container-image",
+        help="Prebuilt runner image. Overrides sandbox.container.image in config.",
     )
     parser.add_argument(
         "--allowed-path",
@@ -225,6 +229,7 @@ def resolve_runtime_config(project_root: Path, args: argparse.Namespace) -> dict
         "context_include_tests": _as_bool(context_config.get("include_tests", DEFAULT_CONTEXT_INCLUDE_TESTS)),
         "sandbox_timeout": int(sandbox_config.get("timeout_seconds", 30)),
         "sandbox_backend": sandbox_backend,
+        "container_image": getattr(args, "container_image", None),
         "sandbox_config": sandbox_config,
         "require_clean_workspace": (
             False
@@ -377,6 +382,7 @@ def main(argv: list[str] | None = None) -> int:
         runtime["workspace"],
         runtime["sandbox_config"],
         backend_override=runtime["sandbox_backend"],
+        container_image_override=runtime["container_image"],
     )
 
     agent = DefaultAgent(

@@ -4,9 +4,11 @@ PyFixAgent is intentionally scoped as a local prototype for small Python project
 
 ## Container Isolation Is Not VM Isolation
 
-The default local backend is a host subprocess runner and is intended only for trusted projects. The optional v0.7.0 container backend disables network access by default, mounts only the disposable repair worktree, uses a read-only root and bounded tmpfs, drops capabilities, disables privilege escalation, runs as a non-root UID, and enforces CPU, memory, PID, and time limits. These controls reduce exposure but do not provide a separate kernel, VM-grade isolation, or a guarantee against container/runtime vulnerabilities.
+The default v0.7.1 container backend disables network access, mounts only the disposable repair worktree, uses a read-only root and bounded tmpfs, drops capabilities, disables privilege escalation, runs as a non-root UID, and enforces CPU, memory, PID, open-file, single-file, output, sampled worktree-growth, and time limits. The local host-process backend must be selected explicitly and is intended only for trusted projects. These controls reduce exposure but do not provide a separate kernel, VM-grade isolation, or a guarantee against container/runtime vulnerabilities.
 
-Container execution requires a running Docker or Podman daemon and a reviewed runner image. Platform bind-mount semantics and daemon configuration remain operator responsibilities. The distributed image recipe uses pinned Python package versions, while the resolved image digest/ID is captured at runtime when available.
+Container execution requires a running Docker or Podman daemon and a reviewed runner image. Platform bind-mount semantics and daemon configuration remain operator responsibilities. The distributed image recipe pins its base digest and Linux/amd64 wheel hashes, while the resolved image digest/ID is captured at runtime when available. The sampled worktree monitor is defense in depth rather than a filesystem quota: a very fast create/delete burst can occur between samples, though the per-file kernel limit remains active. Current reviewed base-image CVE exceptions are explicit, expiring, and checked by `pyfixagent-verify-container`.
+
+The distributed scientific runner is not a universal dependency environment. Projects needing other system or Python packages must build a reviewed image ahead of execution and select it with `--container-image`; runtime dependency installation remains blocked.
 
 ## Designed for Small Python Projects
 
