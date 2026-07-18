@@ -38,7 +38,7 @@ PyFixAgent does not create GitHub issues, branches, pull requests, comments, or 
 
 Model responses can be malformed, incomplete, overbroad, or wrong. PyFixAgent adds parsing, validation, and pytest feedback, but it cannot guarantee reliable repairs.
 
-Generation parameters are provider-specific. The default Kimi configuration avoids sending a Qwen-only thinking budget, but custom model configurations remain the operator's responsibility and should be checked against the selected provider documentation.
+Generation parameters are provider-specific. The default configuration avoids sending a Qwen-only thinking budget, but custom model configurations remain the operator's responsibility and should be checked against the selected provider documentation.
 
 ## Trace Sensitivity
 

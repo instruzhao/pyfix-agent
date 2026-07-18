@@ -1,6 +1,6 @@
 model:
   provider: openai_compatible
-  name: kimi-k2.6
+  name: deepseek-v4-flash
   api_base: https://dashscope.aliyuncs.com/compatible-mode/v1
   api_key_env: DASHSCOPE_API_KEY
   temperature: 1.0

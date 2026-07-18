@@ -77,7 +77,7 @@ Copy `.env.example` to `.env` and set the API key required by your model provide
 
     DASHSCOPE_API_KEY=your_api_key_here
 
-The default configured model is `kimi-k2.6` through the DashScope OpenAI-compatible endpoint. Thinking mode is enabled without a Qwen-only `thinking_budget` parameter.
+The default configured model is `deepseek-v4-flash` through the DashScope OpenAI-compatible endpoint. Thinking mode is enabled without a Qwen-only `thinking_budget` parameter.
 
 Then reset the examples and run the default configured workspace:
 

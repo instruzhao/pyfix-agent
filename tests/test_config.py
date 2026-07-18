@@ -24,7 +24,7 @@ def test_default_config_matches_documented_defaults():
     assert runtime["context_include_tests"] is True
     assert runtime["isolate_workspace"] is True
     assert runtime["test_commands"] == (("python", "-m", "pytest", "-p", "no:cacheprovider"),)
-    assert runtime["config"]["model"]["name"] == "kimi-k2.6"
+    assert runtime["config"]["model"]["name"] == "deepseek-v4-flash"
     assert runtime["config"]["model"]["temperature"] == 1.0
     assert build_model_extra_body(runtime["config"]["model"]) == {
         "enable_thinking": True,
