@@ -21,7 +21,7 @@ def test_reset_workspace_restores_demo_baseline_and_cleans_runtime_artifacts(tmp
     billing_path = repo / "workspaces" / "demo_project" / "src" / "billing.py"
     billing_path.write_text("def calculate_order_total(*args, **kwargs):\n    return None\n", encoding="utf-8")
     pycache = repo / "workspaces" / "demo_project" / "src" / "__pycache__"
-    pycache.mkdir()
+    pycache.mkdir(exist_ok=True)
     (pycache / "billing.pyc").write_text("cache", encoding="utf-8")
 
     reset_path = reset_workspace(repo, "demo")

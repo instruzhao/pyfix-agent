@@ -71,7 +71,7 @@ def test_agent_runs_with_real_model_and_writes_trace():
     patch_output_dir = root / config["paths"].get("patch_output_dir", "outputs/patches")
     trace_output_dir = root / config["paths"].get("trace_output_dir", "outputs/traces")
 
-    reset_demo(clean_outputs=False)
+    reset_demo(clean_outputs_requested=False)
     try:
         agent = DefaultAgent(
             model=model,
@@ -101,4 +101,4 @@ def test_agent_runs_with_real_model_and_writes_trace():
                 for record in result.iterations
             )
     finally:
-        reset_demo(clean_outputs=False)
+        reset_demo(clean_outputs_requested=False)
