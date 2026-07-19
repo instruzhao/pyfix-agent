@@ -76,15 +76,22 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Set up Docker with the containerd image store
+        uses: docker/setup-docker-action@v5
+        with:
+          daemon-config: |
+            {
+              "features": {
+                "containerd-snapshotter": true
+              }
+            }
+
       - name: Install project
         run: pip install -e .
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
-
       - name: Build runner with supply-chain attestations
         run: |
-          docker buildx build --load --sbom=true --provenance=mode=max \
+          docker build --sbom=true --provenance=mode=max \
             -f containers/Dockerfile \
             -t pyfixagent-runner:0.7.1 .
 
