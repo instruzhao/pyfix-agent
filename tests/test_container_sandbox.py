@@ -1,5 +1,7 @@
+import os
 from pathlib import Path
 import subprocess
+from types import SimpleNamespace
 
 import pytest
 
@@ -34,7 +36,10 @@ def test_container_sandbox_builds_hardened_argv_without_a_shell(monkeypatch, tmp
     monkeypatch.setattr(container_module.shutil, "which", lambda engine: f"/bin/{engine}")
     monkeypatch.setattr(container_module.subprocess, "run", fake_run)
     monkeypatch.setattr(container_module, "run_bounded_process", fake_bounded)
-    sandbox = ContainerSandbox(tmp_path, policy=ContainerPolicy())
+    sandbox = ContainerSandbox(
+        tmp_path,
+        policy=ContainerPolicy(user="65534:65534"),
+    )
 
     result = sandbox.run(["python.exe", "-m", "pytest", "-q"])
 
@@ -169,6 +174,24 @@ def test_container_workspace_rebinding_preserves_policy(tmp_path):
     assert rebound.pytest_basetemp(tmp_path, 2) == "/tmp/pyfixagent-pytest-2"
 
 
+def test_container_workspace_owner_maps_to_bind_mount_owner(tmp_path):
+    resolved = container_module._resolve_runtime_user("workspace_owner", tmp_path)
+
+    if os.name == "posix":
+        workspace_stat = tmp_path.stat()
+        assert resolved == f"{workspace_stat.st_uid}:{workspace_stat.st_gid}"
+    else:
+        assert resolved == "65534:65534"
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX ownership mapping only")
+def test_container_workspace_owner_rejects_root_identity():
+    workspace = SimpleNamespace(stat=lambda: SimpleNamespace(st_uid=0, st_gid=0))
+
+    with pytest.raises(ValueError, match="resolves to root"):
+        container_module._resolve_runtime_user("workspace_owner", workspace)
+
+
 def test_runner_recipe_is_digest_pinned_hashed_and_non_root():
     root = Path(__file__).resolve().parents[1]
     dockerfile = (root / "containers" / "Dockerfile").read_text(encoding="utf-8")
@@ -216,6 +239,7 @@ def test_sandbox_factory_supports_local_and_container(tmp_path):
     assert container.policy.image == "custom/runner:1"
     assert container.policy.cpus == 0.75
     assert container.policy.output_limit == "2m"
+    assert container.policy.user == "workspace_owner"
 
 
 @pytest.mark.integration
