@@ -64,7 +64,7 @@ The repository includes two resettable demo workspaces:
 - Separate repair/review token and latency accounting with a bounded reviewer model.
 - Configurable path or source-content trace redaction.
 - Default ephemeral Docker/Podman execution with no network, a read-only root, a single temporary-worktree mount, dropped capabilities, no-new-privileges, and CPU/memory/PID/time limits. Host-local execution requires an explicit trusted-project override.
-- Bounded stdout/stderr capture, single-file limits, open-file limits, and sampled worktree-growth enforcement.
+- Bounded stdout/stderr capture, single-file limits, open-file limits, and sampled plus final worktree-growth enforcement.
 - Image-only dependency policy, digest-pinned base, hashed Linux wheel lock, provenance/SBOM verification, and resolved image/runtime metadata in trace schema 1.5.
 - SHA-256-bound human approval before an exported patch can update a selected checkout.
 - Standalone, script-free HTML trace viewer with a privacy audit.
