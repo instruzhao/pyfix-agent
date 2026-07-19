@@ -79,9 +79,12 @@ jobs:
       - name: Install project
         run: pip install -e .
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
       - name: Build runner with supply-chain attestations
         run: |
-          docker build --sbom=true --provenance=mode=max \
+          docker buildx build --load --sbom=true --provenance=mode=max \
             -f containers/Dockerfile \
             -t pyfixagent-runner:0.7.1 .
 
