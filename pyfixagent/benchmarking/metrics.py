@@ -1,4 +1,5 @@
 from collections import Counter
+import math
 
 
 def summarize_runs(runs: list[dict]) -> dict:
@@ -36,17 +37,24 @@ def summarize_runs(runs: list[dict]) -> dict:
     context_precision_values = _numeric_values(runs, "context_precision")
     distractor_rate_values = _numeric_values(runs, "context_distractor_rate")
     ab = _ab_summary(runs)
+    success_at_one_count = sum(bool(run.get("success")) for run in first_runs)
     return {
         "runs": total,
         "successful_runs": successes,
         "success_rate": rate(successes, total),
+        "success_rate_95ci": wilson_interval(successes, total),
         "visible_success_rate": rate(visible_successes, total),
+        "visible_success_rate_95ci": wilson_interval(visible_successes, total),
         "candidate_success_rate": rate(candidate_successes, total),
         "review_acceptance_rate": rate(accepted, total),
         "holdout_success_rate": rate(holdout_successes, len(holdout_evaluated)),
+        "holdout_success_rate_95ci": wilson_interval(
+            holdout_successes, len(holdout_evaluated)
+        ),
         "case_strategy_pairs": len(case_keys),
         "pass_at_k": rate(passed_cases, len(case_keys)),
-        "success_at_1": rate(sum(bool(run.get("success")) for run in first_runs), len(first_runs)),
+        "success_at_1": rate(success_at_one_count, len(first_runs)),
+        "success_at_1_95ci": wilson_interval(success_at_one_count, len(first_runs)),
         "average_iterations": round(
             sum(int(run.get("iterations", 0)) for run in runs) / total, 3
         ) if total else 0.0,
@@ -117,6 +125,23 @@ def summarize_runs(runs: list[dict]) -> dict:
 
 def rate(numerator: int, denominator: int) -> float:
     return round(numerator / denominator, 4) if denominator else 0.0
+
+
+def wilson_interval(successes: int, total: int, z: float = 1.959963984540054) -> list[float] | None:
+    """Return a two-sided Wilson score interval without external statistics packages."""
+    if total <= 0:
+        return None
+    proportion = successes / total
+    z_squared = z * z
+    denominator = 1 + z_squared / total
+    centre = proportion + z_squared / (2 * total)
+    margin = z * math.sqrt(
+        (proportion * (1 - proportion) + z_squared / (4 * total)) / total
+    )
+    return [
+        round((centre - margin) / denominator, 4),
+        round((centre + margin) / denominator, 4),
+    ]
 
 
 def _numeric_values(runs: list[dict], key: str) -> list[float]:

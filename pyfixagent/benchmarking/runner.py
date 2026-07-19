@@ -50,6 +50,7 @@ def run_benchmark(
     repository_max_snippet_lines: int = 200,
     context_max_selected_tokens: int = 12000,
     trace_redaction_mode: str = "paths",
+    protocol_metadata: dict | None = None,
 ) -> dict:
     if repeat < 1:
         raise ValueError("repeat must be at least 1")
@@ -158,8 +159,9 @@ def run_benchmark(
                                 )
 
     return {
-        "schema_version": 4,
+        "schema_version": 5,
         "generated_at": datetime.now(timezone.utc).isoformat(),
+        "protocol": protocol_metadata or {"protocol_version": 1, "source": "library"},
         "summary": summarize_runs(runs),
         "runs": runs,
     }

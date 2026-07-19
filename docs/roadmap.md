@@ -94,12 +94,23 @@
 - expiring reviewed-CVE gate, application-layer Scout CI gate, and weekly Docker digest updates
 - CLI selection of reviewed project-specific runner images
 
-## Next: v0.7.2 Runner Portability
+## v0.7.2 Runner Portability and Evidence — Completed
 
-- Podman smoke coverage and Linux host qualification
-- published signed runner image and downloadable SBOM/provenance artifacts
-- reviewed minimal, scientific, and web dependency profiles
-- container startup/cache benchmarks and disk-I/O quota experiments
+- formalized the post-v0.7.1 Linux UID, final workspace-budget, containerd-attestation, and account-free CVE-gate fixes
+- real Linux Podman and Docker policy coverage in CI
+- reviewed minimal, scientific, and web dependency profiles with exact Linux/amd64 wheel hashes
+- tag-gated GHCR publication with embedded SBOM/provenance and GitHub OIDC build provenance
+- downloadable CI runner evidence with CycloneDX SBOM, image/build metadata, and startup/write-limit qualification
+- benchmark report schema 5 with protocol fingerprints, Wilson intervals, and fail-closed matched report comparison
+- explicit evidence that persistent over-budget writes are detected while transient create/delete bursts remain a bind-mount monitoring limitation
+
+## Next: v0.8.0 External Validity
+
+- replay 10–30 unseen historical or independently submitted Python fixes without case-specific hints
+- compare at least two models against a simple single-pass baseline under one fingerprinted protocol
+- publish pass@1/pass@k, false acceptance, cost, latency, and infrastructure-failure rates
+- run ablations for repository context, semantic review, rollback, and container execution
+- add a concise demo artifact and seek one third-party issue or integration report
 
 ## Deferred
 

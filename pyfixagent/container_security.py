@@ -68,7 +68,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Fail on unreviewed Critical/High CVEs in a local runner image."
     )
-    parser.add_argument("--image", default="pyfixagent-runner:0.7.1")
+    parser.add_argument("--image", default="pyfixagent-runner:0.7.2")
     parser.add_argument(
         "--allowlist",
         type=Path,

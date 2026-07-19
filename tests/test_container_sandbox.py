@@ -11,6 +11,15 @@ from pyfixagent.sandbox.container_sandbox import ContainerPolicy, ContainerSandb
 from pyfixagent.sandbox.factory import build_sandbox
 
 
+def _integration_policy(**overrides):
+    values = {
+        "engine": os.environ.get("RUN_CONTAINER_ENGINE", "docker"),
+        "image": os.environ.get("RUN_CONTAINER_IMAGE", "pyfixagent-runner:0.7.2"),
+    }
+    values.update(overrides)
+    return ContainerPolicy(**values)
+
+
 def test_container_policy_rejects_unsafe_or_unbounded_settings():
     with pytest.raises(ValueError, match="image"):
         ContainerPolicy(image="--privileged")
@@ -64,6 +73,28 @@ def test_container_sandbox_builds_hardened_argv_without_a_shell(monkeypatch, tmp
     mount = runtime[runtime.index("--mount") + 1]
     assert str(tmp_path.resolve()) in mount
     assert result.runtime_command == runtime
+
+
+def test_container_sandbox_uses_selected_podman_runtime(monkeypatch, tmp_path):
+    calls = []
+
+    def fake_run(command, **kwargs):
+        return subprocess.CompletedProcess(command, 0, "5.0.0\n", "")
+
+    def fake_bounded(command, **kwargs):
+        calls.append(command)
+        return BoundedProcessResult(0, "", "")
+
+    monkeypatch.setattr(container_module.shutil, "which", lambda engine: f"/usr/bin/{engine}")
+    monkeypatch.setattr(container_module.subprocess, "run", fake_run)
+    monkeypatch.setattr(container_module, "run_bounded_process", fake_bounded)
+
+    result = ContainerSandbox(
+        tmp_path, policy=ContainerPolicy(engine="podman", user="65534:65534")
+    ).run(["python", "-c", "print('ok')"])
+
+    assert result.exit_code == 0
+    assert calls[0][:2] == ["podman", "run"]
 
 
 def test_container_timeout_forces_named_container_cleanup(monkeypatch, tmp_path):
@@ -235,6 +266,25 @@ def test_runner_recipe_is_digest_pinned_hashed_and_non_root():
     assert all(" --hash=sha256:" in line for line in lock_lines)
 
 
+def test_all_runner_profiles_are_hashed_and_have_smoke_imports():
+    import json
+
+    root = Path(__file__).resolve().parents[1]
+    manifest = json.loads((root / "containers" / "profiles.json").read_text(encoding="utf-8"))
+
+    assert set(manifest["profiles"]) == {"minimal", "scientific", "web"}
+    for profile in manifest["profiles"].values():
+        lock_path = root / profile["lock"]
+        lock_lines = [
+            line.strip()
+            for line in lock_path.read_text(encoding="utf-8").splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+        ]
+        assert lock_lines
+        assert all(" --hash=sha256:" in line for line in lock_lines)
+        assert profile["smoke_imports"]
+
+
 def test_container_blocks_runtime_dependency_install_even_through_python(tmp_path):
     result = ContainerSandbox(tmp_path).run(["python", "-m", "pip", "install", "anything"])
 
@@ -269,13 +319,13 @@ def test_sandbox_factory_supports_local_and_container(tmp_path):
 
 @pytest.mark.integration
 @pytest.mark.skipif(
-    __import__("os").environ.get("RUN_DOCKER_TESTS") != "1",
-    reason="set RUN_DOCKER_TESTS=1 with the v0.7.1 runner image available",
+    os.environ.get("RUN_CONTAINER_TESTS", os.environ.get("RUN_DOCKER_TESTS")) != "1",
+    reason="set RUN_CONTAINER_TESTS=1 with a v0.7.2 runner image available",
 )
 def test_container_sandbox_real_smoke(tmp_path):
     (tmp_path / "test_ok.py").write_text("def test_ok():\n    assert True\n", encoding="utf-8")
 
-    result = ContainerSandbox(tmp_path, timeout_seconds=30).run(
+    result = ContainerSandbox(tmp_path, timeout_seconds=30, policy=_integration_policy()).run(
         ["python", "-m", "pytest", "-q", "-p", "no:cacheprovider"]
     )
 
@@ -285,14 +335,14 @@ def test_container_sandbox_real_smoke(tmp_path):
 
 @pytest.mark.integration
 @pytest.mark.skipif(
-    __import__("os").environ.get("RUN_DOCKER_TESTS") != "1",
-    reason="set RUN_DOCKER_TESTS=1 with the v0.7.1 runner image available",
+    os.environ.get("RUN_CONTAINER_TESTS", os.environ.get("RUN_DOCKER_TESTS")) != "1",
+    reason="set RUN_CONTAINER_TESTS=1 with a v0.7.2 runner image available",
 )
 def test_container_sandbox_real_output_limit(tmp_path):
     sandbox = ContainerSandbox(
         tmp_path,
         timeout_seconds=30,
-        policy=ContainerPolicy(output_limit="8k"),
+        policy=_integration_policy(output_limit="8k"),
     )
 
     result = sandbox.run(["python", "-c", "print('x' * 32768)"])
@@ -305,14 +355,14 @@ def test_container_sandbox_real_output_limit(tmp_path):
 
 @pytest.mark.integration
 @pytest.mark.skipif(
-    __import__("os").environ.get("RUN_DOCKER_TESTS") != "1",
-    reason="set RUN_DOCKER_TESTS=1 with the v0.7.1 runner image available",
+    os.environ.get("RUN_CONTAINER_TESTS", os.environ.get("RUN_DOCKER_TESTS")) != "1",
+    reason="set RUN_CONTAINER_TESTS=1 with a v0.7.2 runner image available",
 )
 def test_container_sandbox_real_workspace_growth_limit(tmp_path):
     sandbox = ContainerSandbox(
         tmp_path,
         timeout_seconds=30,
-        policy=ContainerPolicy(workspace_write_limit="8k"),
+        policy=_integration_policy(workspace_write_limit="8k"),
     )
 
     result = sandbox.run(
@@ -330,14 +380,14 @@ def test_container_sandbox_real_workspace_growth_limit(tmp_path):
 
 @pytest.mark.integration
 @pytest.mark.skipif(
-    __import__("os").environ.get("RUN_DOCKER_TESTS") != "1",
-    reason="set RUN_DOCKER_TESTS=1 with the v0.7.1 runner image available",
+    os.environ.get("RUN_CONTAINER_TESTS", os.environ.get("RUN_DOCKER_TESTS")) != "1",
+    reason="set RUN_CONTAINER_TESTS=1 with a v0.7.2 runner image available",
 )
 def test_container_sandbox_real_file_size_ulimit(tmp_path):
     sandbox = ContainerSandbox(
         tmp_path,
         timeout_seconds=30,
-        policy=ContainerPolicy(file_size_limit="8k", workspace_write_limit="1m"),
+        policy=_integration_policy(file_size_limit="8k", workspace_write_limit="1m"),
     )
 
     result = sandbox.run(

@@ -22,7 +22,7 @@ sandbox:
   timeout_seconds: 30
   container:
     engine: docker
-    image: pyfixagent-runner:0.7.1
+    image: pyfixagent-runner:0.7.2
     pull_policy: never
     network: none
     cpus: 1.0

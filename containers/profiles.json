@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "platform": "linux/amd64",
+  "python": "3.12",
+  "profiles": {
+    "minimal": {
+      "lock": "containers/profiles/minimal.lock",
+      "smoke_imports": ["pytest"]
+    },
+    "scientific": {
+      "lock": "containers/requirements.lock",
+      "smoke_imports": ["pytest", "numpy", "sklearn", "matplotlib"]
+    },
+    "web": {
+      "lock": "containers/profiles/web.lock",
+      "smoke_imports": ["pytest", "flask"]
+    }
+  }
+}

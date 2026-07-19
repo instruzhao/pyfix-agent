@@ -8,11 +8,15 @@ def render_markdown(report: dict) -> str:
         "",
         f"- Runs: {summary['runs']}",
         f"- Final success rate: {summary['success_rate']:.1%}",
+        f"- Final success 95% CI: {interval(summary.get('success_rate_95ci'))}",
         f"- Visible-test success rate: {summary['visible_success_rate']:.1%}",
+        f"- Visible-test success 95% CI: {interval(summary.get('visible_success_rate_95ci'))}",
         f"- Candidate holdout success rate: {summary.get('candidate_success_rate', 0):.1%}",
         f"- Review acceptance rate: {summary.get('review_acceptance_rate', 0):.1%}",
         f"- Holdout success rate: {summary['holdout_success_rate']:.1%}",
+        f"- Holdout success 95% CI: {interval(summary.get('holdout_success_rate_95ci'))}",
         f"- Success@1: {summary['success_at_1']:.1%}",
+        f"- Success@1 95% CI: {interval(summary.get('success_at_1_95ci'))}",
         f"- Pass@k: {summary['pass_at_k']:.1%}",
         f"- Average iterations: {summary['average_iterations']}",
         f"- Regression rate: {summary['regression_rate']:.1%}",
@@ -46,6 +50,12 @@ def yes_no(value) -> str:
 
 def percentage(value) -> str:
     return "n/a" if value is None else f"{float(value):.1%}"
+
+
+def interval(value) -> str:
+    if value is None:
+        return "n/a"
+    return f"[{float(value[0]):.1%}, {float(value[1]):.1%}]"
 
 
 __all__ = ["render_markdown", "summarize_runs"]

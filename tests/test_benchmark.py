@@ -151,7 +151,8 @@ def test_runner_emits_paired_repository_variants_and_schema_four_metrics(tmp_pat
         repository_modes=(False, True),
     )
 
-    assert report["schema_version"] == 4
+    assert report["schema_version"] == 5
+    assert report["protocol"]["source"] == "library"
     assert [run["variant"] for run in report["runs"]] == ["legacy", "repository"]
     assert all(run["context_required_recall"] == 1.0 for run in report["runs"])
     assert report["summary"]["repository_ab_pair_count"] == 1

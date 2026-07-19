@@ -4,11 +4,15 @@ PyFixAgent is intentionally scoped as a local prototype for small Python project
 
 ## Container Isolation Is Not VM Isolation
 
-The default v0.7.1 container backend disables network access, mounts only the disposable repair worktree, uses a read-only root and bounded tmpfs, drops capabilities, disables privilege escalation, runs as a non-root UID, and enforces CPU, memory, PID, open-file, single-file, output, sampled plus final worktree-growth, and time limits. The local host-process backend must be selected explicitly and is intended only for trusted projects. These controls reduce exposure but do not provide a separate kernel, VM-grade isolation, or a guarantee against container/runtime vulnerabilities.
+The default v0.7.2 container backend disables network access, mounts only the disposable repair worktree, uses a read-only root and bounded tmpfs, drops capabilities, disables privilege escalation, runs as a non-root UID, and enforces CPU, memory, PID, open-file, single-file, output, sampled plus final worktree-growth, and time limits. The local host-process backend must be selected explicitly and is intended only for trusted projects. These controls reduce exposure but do not provide a separate kernel, VM-grade isolation, or a guarantee against container/runtime vulnerabilities.
 
 Container execution requires a running Docker or Podman daemon and a reviewed runner image. Platform bind-mount semantics and daemon configuration remain operator responsibilities. The distributed image recipe pins its base digest and Linux/amd64 wheel hashes, while the resolved image digest/ID is captured at runtime when available. The worktree monitor is defense in depth rather than a filesystem quota: a very fast create/delete burst can occur between samples and disappear before the final scan, though the per-file kernel limit remains active. Current reviewed base-image CVE exceptions are explicit, expiring, and checked by `pyfixagent-verify-container`.
 
-The distributed scientific runner is not a universal dependency environment. Projects needing other system or Python packages must build a reviewed image ahead of execution and select it with `--container-image`; runtime dependency installation remains blocked.
+The distributed minimal, scientific, and Flask web profiles are finite dependency environments, not universal Python runners. Projects needing other system or Python packages must build a reviewed image ahead of execution and select it with `--container-image`; runtime dependency installation remains blocked.
+
+## Benchmark Evidence Is Still Curated
+
+Schema 5 fingerprints benchmark protocols, shows small-sample confidence intervals, and rejects invalid paired comparisons by default. These controls improve honesty and reproducibility; they do not turn the 24 bundled fixtures into external evidence. Generated or mutation-derived failures would share the same limitation, so v0.7.2 does not relabel them as real-world issues.
 
 ## Designed for Small Python Projects
 

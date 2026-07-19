@@ -1,6 +1,7 @@
 """Compatibility facade for the modular v0.4 benchmark implementation."""
 
 from pyfixagent.benchmarking.cli import cli, main, parse_args
+from pyfixagent.benchmarking.comparison import compare_reports, render_comparison_markdown
 from pyfixagent.benchmarking.contracts import BenchmarkCase, build_generic_task
 from pyfixagent.benchmarking.manifest import load_manifest, validate_benchmark_cases
 from pyfixagent.benchmarking.metrics import summarize_runs
@@ -18,6 +19,8 @@ __all__ = [
     "run_benchmark",
     "summarize_runs",
     "validate_benchmark_cases",
+    "compare_reports",
+    "render_comparison_markdown",
 ]
 
 

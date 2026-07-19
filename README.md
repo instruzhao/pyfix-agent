@@ -2,11 +2,11 @@
 
 PyFixAgent is a test-driven repair agent for local Python projects. It runs pytest, collects failure output, selects relevant source context, asks an LLM for a constrained code edit, applies the edit, reruns pytest, and records a structured trace of the repair attempt.
 
-It is a prototype for demonstrating the repair loop, execution boundaries, and traceability. Its container backend reduces host exposure but is not a VM-grade security boundary or a production coding-agent platform.
+It is an engineering prototype for demonstrating the repair loop, execution boundaries, evaluation discipline, and traceability. Its container backend reduces host exposure but is not a VM-grade security boundary or a production coding-agent platform.
 
 ## Overview
 
-The v0.7.1 workflow is transactional, repository-aware, review-gated, execution-policy aware, and cost-observable:
+The v0.7.2 workflow is transactional, repository-aware, review-gated, execution-policy aware, and cost-observable:
 
     create a temporary Git worktree
     run the configured pytest command through a local or container sandbox
@@ -50,6 +50,7 @@ The repository includes two resettable demo workspaces:
 - CLI overrides for workspace, mode, context strategy, task, config path, and max iterations.
 - Clean Git workspace checks and a shared edit policy for patch/replacement modes.
 - Repeatable YAML-driven benchmarks with JSON and Markdown reports.
+- Fingerprinted benchmark protocols, Wilson confidence intervals, and fail-closed paired report comparison.
 - Reset script for restoring demo workspaces to their committed failing baselines.
 - Component-based internals with separate repair orchestration, test execution, context, prompting, model, edit backend, retry, trace evaluation, and benchmark responsibilities.
 - Temporary Git worktree execution for the default CLI workflow, leaving the selected repository unchanged.
@@ -65,7 +66,8 @@ The repository includes two resettable demo workspaces:
 - Configurable path or source-content trace redaction.
 - Default ephemeral Docker/Podman execution with no network, a read-only root, a single temporary-worktree mount, dropped capabilities, no-new-privileges, and CPU/memory/PID/time limits. Host-local execution requires an explicit trusted-project override.
 - Bounded stdout/stderr capture, single-file limits, open-file limits, and sampled plus final worktree-growth enforcement.
-- Image-only dependency policy, digest-pinned base, hashed Linux wheel lock, provenance/SBOM verification, and resolved image/runtime metadata in trace schema 1.5.
+- Image-only dependency policy, digest-pinned base, minimal/scientific/web hashed Linux wheel profiles, provenance/SBOM verification, and resolved image/runtime metadata in trace schema 1.5.
+- Real Docker and Linux Podman CI smoke coverage plus runner startup/write-limit qualification reports.
 - SHA-256-bound human approval before an exported patch can update a selected checkout.
 - Standalone, script-free HTML trace viewer with a privacy audit.
 
@@ -85,9 +87,13 @@ Copy `.env.example` to `.env` and set the API key required by your model provide
 
 The default configured model is `deepseek-v4-flash` through the DashScope OpenAI-compatible endpoint. Thinking mode is enabled without a Qwen-only `thinking_budget` parameter.
 
-Build the default Linux/amd64 runner with provenance metadata:
+Build the default Linux/amd64 scientific runner with provenance metadata:
 
-    docker build --pull=false --provenance=mode=max -f containers/Dockerfile -t pyfixagent-runner:0.7.1 .
+    docker build --pull=false --provenance=mode=max -f containers/Dockerfile -t pyfixagent-runner:0.7.2 .
+
+The repository also provides reviewed `minimal` and `web` dependency profiles. For example:
+
+    docker build --build-arg RUNNER_PROFILE=web --build-arg REQUIREMENTS_LOCK=containers/profiles/web.lock -f containers/Dockerfile -t pyfixagent-runner:0.7.2-web .
 
 Then reset the examples and run the default configured workspace through the container backend:
 
@@ -104,7 +110,11 @@ Select a separately reviewed project-specific image without editing the main con
 
 Verify that the runner has no unreviewed Critical/High CVEs:
 
-    pyfixagent-verify-container --image pyfixagent-runner:0.7.1
+    pyfixagent-verify-container --image pyfixagent-runner:0.7.2
+
+Generate a machine-readable local runner qualification without calling a model:
+
+    pyfixagent-qualify-container --image pyfixagent-runner:0.7.2 --repeat 5 --probe-limits
 
 The container path requires a running Docker or Podman daemon. Runtime package installation is disabled; dependencies must be present in the configured image.
 
@@ -144,9 +154,13 @@ Run the v0.6.2 multi-module cases as paired repository-context A/B trials:
 
     pyfixagent-benchmark --tag v0.6.2 --repository-mode off --repository-mode on --repeat 4
 
+Compare two report-schema-5 runs. The command returns exit status 2 if the manifest, cases, repetitions, strategies, or repository modes drifted, and status 3 for unmatched trials:
+
+    pyfixagent-benchmark-compare outputs/baseline/report.json outputs/candidate/report.json --output-dir outputs/comparison
+
 Benchmark results are written under `outputs/benchmarks/`. Each run copies a read-only fixture into a disposable repository, performs repair in an inner temporary Git worktree, exports the aggregate patch, and removes the repair worktree afterward. The materialized benchmark workspace is also removed unless `--keep-workspaces` is explicitly supplied.
 
-PyFixAgent includes a GitHub Actions workflow that runs the supported Python test matrix on pushes to `main` and pull requests targeting `main`. Benchmark protocol validation runs once in a separate job with the optional benchmark dependencies installed.
+PyFixAgent includes GitHub Actions coverage for the supported Python matrix, benchmark protocol validation, three hashed runner profiles, real Docker resource-policy tests, and real Linux Podman sandbox tests. Tag builds publish the three GHCR profiles with embedded SBOM/provenance attestations and GitHub OIDC-signed build provenance after profile and sandbox qualification succeeds.
 
 Reset generated demo state and remove temporary patches/traces:
 
@@ -235,7 +249,7 @@ It covers:
 
 See `docs/benchmark.md` for detailed results. This benchmark compares context strategy behavior; it is not an academic benchmark, not comparable to SWE-bench, and not a claim of production-grade repair ability.
 
-The benchmark runner generates tasks from allowed paths and cannot accept case-specific hints. Agent-visible tests live inside each fixture; holdout tests live outside the fixture and run only after the repair loop. v0.6.2 manifest schema 3 adds evaluation-only context ground truth and tags; report schema 4 adds paired repository A/B, retrieval quality, cache/index timing, and separate repair/review cost.
+The benchmark runner generates tasks from allowed paths and cannot accept case-specific hints. Agent-visible tests live inside each fixture; holdout tests live outside the fixture and run only after the repair loop. v0.6.2 manifest schema 3 adds evaluation-only context ground truth and tags; v0.7.2 report schema 5 adds protocol provenance, confidence intervals, and fail-closed matched report comparison on top of the schema 4 A/B, retrieval, cache, and cost metrics.
 
 See `docs/results/v0.3.1-qwen3.6-flash.md` for a sanitized one-run report across all 15 cases.
 
@@ -259,6 +273,8 @@ v0.7.0 adds a container-backed execution boundary, resource and network policies
 
 v0.7.1 makes the container backend the default, bounds host-side output and worktree growth, adds hard file/open-file limits, makes the image non-root by default, requires hashed wheel artifacts, records provenance/SBOM evidence, and adds an expiring Critical/High CVE gate. See `docs/v0.7.1.md` for details.
 
+v0.7.2 formalizes the Linux fixes made after the v0.7.1 tag, adds protocol-fingerprinted benchmark evidence and matched comparison, qualifies minimal/scientific/web hashed runners, adds real Linux Podman CI, publishes OIDC-attested GHCR images on version tags, and records container startup plus write-limit behavior without making a model call. See `docs/v0.7.2.md` for details.
+
 ## Limitations
 
 - The local backend is not a security sandbox; the container backend is defense in depth, not VM-grade isolation.
@@ -281,4 +297,4 @@ Future work is listed in `docs/roadmap.md`. Items there are not implemented unle
 
 ## Project Status
 
-PyFixAgent v0.7.1 is a transactional repair baseline with constrained edits, temporary-worktree execution, semantic rollback/retry, bounded static repository context, provider-safe review, holdout validation, cost accounting, configurable trace privacy, and a default hardened container test boundary. Local execution remains an explicit trusted-project compatibility option. Container execution mounts only the disposable worktree and applies privilege, network, process, memory, output, file, and workspace-growth policies; exported patches still require separate digest-bound approval before touching the selected checkout.
+PyFixAgent v0.7.2 is a transactional repair baseline with constrained edits, temporary-worktree execution, semantic rollback/retry, bounded static repository context, provider-safe review, holdout validation, cost accounting, configurable trace privacy, reproducible benchmark evidence, and a default hardened container test boundary. Local execution remains an explicit trusted-project compatibility option. Container execution mounts only the disposable worktree and applies privilege, network, process, memory, output, file, and workspace-growth policies; exported patches still require separate digest-bound approval before touching the selected checkout.

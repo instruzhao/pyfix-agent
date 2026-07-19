@@ -28,7 +28,7 @@ def build_sandbox(
     container = dict(config.get("container", {}) or {})
     policy = ContainerPolicy(
         engine=str(container.get("engine", "docker")),
-        image=str(container_image_override or container.get("image", "pyfixagent-runner:0.7.1")),
+        image=str(container_image_override or container.get("image", "pyfixagent-runner:0.7.2")),
         pull_policy=str(container.get("pull_policy", "never")),
         network=str(container.get("network", "none")),
         cpus=float(container.get("cpus", 1.0)),

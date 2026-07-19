@@ -23,7 +23,7 @@ _USER_PATTERN = re.compile(r"^[1-9][0-9]*(?::[1-9][0-9]*)?$")
 @dataclass(frozen=True)
 class ContainerPolicy:
     engine: str = "docker"
-    image: str = "pyfixagent-runner:0.7.1"
+    image: str = "pyfixagent-runner:0.7.2"
     pull_policy: str = "never"
     network: str = "none"
     cpus: float = 1.0
@@ -64,7 +64,7 @@ class ContainerPolicy:
         if self.open_files_limit < 32:
             raise ValueError("container open_files_limit must be at least 32")
         if self.dependency_policy != "image_only":
-            raise ValueError("v0.7.1 supports only the image_only dependency policy")
+            raise ValueError("v0.7.2 supports only the image_only dependency policy")
         if self.user != "workspace_owner" and not _USER_PATTERN.fullmatch(self.user):
             raise ValueError(
                 "container user must be workspace_owner or an explicit non-root uid[:gid]"

@@ -94,21 +94,123 @@ jobs:
         run: |
           docker build --sbom=true --provenance=mode=max \
             -f containers/Dockerfile \
-            -t pyfixagent-runner:0.7.1 .
+            --metadata-file build-metadata.json \
+            -t pyfixagent-runner:0.7.2 .
 
       - name: Run real container and resource-policy tests
         env:
-          RUN_DOCKER_TESTS: "1"
+          RUN_CONTAINER_TESTS: "1"
+          RUN_CONTAINER_ENGINE: docker
+          RUN_CONTAINER_IMAGE: pyfixagent-runner:0.7.2
         run: pytest tests/test_bounded_process.py tests/test_container_sandbox.py -q
+
+      - name: Measure runner startup and write-limit behavior
+        run: pyfixagent-qualify-container --image pyfixagent-runner:0.7.2 --repeat 3 --probe-limits
+
+      - name: Generate CycloneDX SBOM
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: pyfixagent-runner:0.7.2
+          format: cyclonedx
+          output: outputs/container-qualification/sbom.cdx.json
+          version: v0.70.0
+          docker-host: ${{ steps.docker.outputs.sock }}
+
+      - name: Capture resolved image metadata
+        run: docker image inspect pyfixagent-runner:0.7.2 > outputs/container-qualification/image-inspect.json
+
+      - name: Collect build metadata
+        run: cp build-metadata.json outputs/container-qualification/build-metadata.json
+
+      - name: Upload runner evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: runner-evidence-docker
+          path: outputs/container-qualification/
+          if-no-files-found: error
 
       - name: Reject application-layer Critical or High CVEs
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: image
-          image-ref: pyfixagent-runner:0.7.1
+          image-ref: pyfixagent-runner:0.7.2
           vuln-type: library
           scanners: vuln
           severity: CRITICAL,HIGH
           exit-code: "1"
           version: v0.70.0
           docker-host: ${{ steps.docker.outputs.sock }}
+
+  runner-profiles:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - profile: minimal
+            lock: containers/profiles/minimal.lock
+            imports: pytest
+          - profile: web
+            lock: containers/profiles/web.lock
+            imports: pytest,flask
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Build hashed runner profile
+        run: |
+          docker build \
+            --build-arg RUNNER_PROFILE=${{ matrix.profile }} \
+            --build-arg REQUIREMENTS_LOCK=${{ matrix.lock }} \
+            -f containers/Dockerfile \
+            -t pyfixagent-runner:0.7.2-${{ matrix.profile }} .
+
+      - name: Smoke profile imports under runtime restrictions
+        run: |
+          docker run --rm --network none --read-only --tmpfs /tmp:rw,noexec,nosuid,nodev,size=32m \
+            --cap-drop ALL --security-opt no-new-privileges:true --user 65534:65534 \
+            pyfixagent-runner:0.7.2-${{ matrix.profile }} \
+            python -c "import ${{ matrix.imports }}"
+
+      - name: Reject profile application-layer Critical or High CVEs
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: pyfixagent-runner:0.7.2-${{ matrix.profile }}
+          vuln-type: library
+          scanners: vuln
+          severity: CRITICAL,HIGH
+          exit-code: "1"
+          version: v0.70.0
+
+  podman:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Podman and project
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes podman
+          pip install -e .
+
+      - name: Build scientific runner with Podman
+        run: podman build -f containers/Dockerfile -t pyfixagent-runner:0.7.2 .
+
+      - name: Run real Podman sandbox tests
+        env:
+          RUN_CONTAINER_TESTS: "1"
+          RUN_CONTAINER_ENGINE: podman
+          RUN_CONTAINER_IMAGE: pyfixagent-runner:0.7.2
+        run: pytest tests/test_container_sandbox.py -q

@@ -7,6 +7,7 @@ from pathlib import Path
 
 from pyfixagent.benchmarking.manifest import load_manifest, validate_benchmark_cases
 from pyfixagent.benchmarking.paths import resolve
+from pyfixagent.benchmarking.provenance import build_protocol_metadata
 from pyfixagent.benchmarking.reporting import render_markdown
 from pyfixagent.benchmarking.runner import run_benchmark
 from pyfixagent.main import (
@@ -66,7 +67,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     project_root = Path(__file__).resolve().parents[2]
-    cases = load_manifest(resolve(project_root, args.manifest), project_root)
+    manifest_path = resolve(project_root, args.manifest)
+    config_path = resolve(project_root, args.config)
+    cases = load_manifest(manifest_path, project_root)
     if args.case_ids:
         selected = set(args.case_ids)
         cases = [case for case in cases if case.case_id in selected]
@@ -93,13 +96,16 @@ def main(argv: list[str] | None = None) -> int:
         return 0 if all(result["valid"] for result in results) else 1
 
     load_dotenv_file(project_root / ".env")
-    config = load_config(resolve(project_root, args.config))
+    config = load_config(config_path)
     model_config = config.get("model", {})
     review_config = config.get("semantic_review", {})
     repository_config = config.get("repository", {})
     context_config = config.get("context", {})
     trace_config = config.get("trace", {})
     sandbox_config = config.get("sandbox", {})
+    sandbox_backend = str(
+        args.sandbox_backend or sandbox_config.get("backend", "container")
+    ).strip().lower()
 
     def model_factory() -> BaseModel:
         api_key_env = model_config.get("api_key_env")
@@ -177,6 +183,31 @@ def main(argv: list[str] | None = None) -> int:
         context_max_selected_tokens=int(context_config.get("max_selected_tokens", 12000)),
         trace_redaction_mode=(
             args.trace_redaction or str(trace_config.get("redaction_mode", "paths"))
+        ),
+        protocol_metadata=build_protocol_metadata(
+            project_root=project_root,
+            manifest_path=manifest_path,
+            config_path=config_path,
+            case_ids=[case.case_id for case in cases],
+            repeat=args.repeat,
+            strategies=list(args.strategies or sorted({s for case in cases for s in case.strategies})),
+            repository_modes=list(args.repository_modes or [
+                "on" if _as_bool(repository_config.get("enabled", True)) else "off"
+            ]),
+            trace_redaction=args.trace_redaction or str(trace_config.get("redaction_mode", "paths")),
+            model_name=build_litellm_model_name(model_config),
+            review_model_name=build_litellm_model_name(review_model_config),
+            sandbox_backend=sandbox_backend,
+            container_engine=(
+                str((sandbox_config.get("container", {}) or {}).get("engine", "docker")).strip().lower()
+                if sandbox_backend == "container"
+                else None
+            ),
+            container_image=(
+                str(args.container_image or (sandbox_config.get("container", {}) or {}).get("image"))
+                if sandbox_backend == "container"
+                else None
+            ),
         ),
     )
     output_dir.mkdir(parents=True, exist_ok=True)

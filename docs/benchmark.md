@@ -9,6 +9,14 @@ The historical results below were produced for v0.2.2. Starting with v0.3, bench
 
 The runner resets every case before and after each run, requires a clean Git workspace, applies the case's allowed-path policy, saves a structured trace per run, and writes `report.json` plus `report.md` under `outputs/benchmarks/`.
 
+Report schema 5 adds a secret-free protocol block containing the Git revision/dirty state, manifest and config SHA-256, selected cases, repetition/strategy/repository modes, model identifiers, sandbox image/runtime selection, and host Python/platform. Summary rates include two-sided 95% Wilson intervals so a perfect result on a small curated set is not presented as certainty.
+
+Two reports can be compared only over matched case/strategy/variant/repetition trials:
+
+    pyfixagent-benchmark-compare baseline/report.json candidate/report.json --output-dir outputs/comparison
+
+The comparison reports paired wins/losses/ties, an exact McNemar p-value, token/runtime deltas, and failure-count deltas. Protocol fingerprint drift returns status 2 unless `--allow-protocol-drift` is explicitly supplied; unmatched or zero matched trials return status 3 unless `--allow-unmatched` is supplied.
+
 The report includes run success rate, Success@1, Pass@k across repetitions, average iterations, failure type, prompt/context characters, and provider token usage when available. The manifest schema is intentionally small so new deterministic cases can be reviewed in Git.
 
 ## v0.3.1 Credible Evaluation Protocol
@@ -49,7 +57,7 @@ Run paired variants by specifying both repository modes. Each variant receives a
 
     pyfixagent-benchmark --tag v0.6.2 --repository-mode off --repository-mode on --repeat 4
 
-Report schema 4 separates repair and review tokens/duration, repository cache and index timing, context recall/precision/distractor rate, and paired wins/losses/ties. A legacy failure is still a failed run; A/B reports are evidence for comparison rather than a release-success shortcut.
+The schema 4 fields retained by report schema 5 separate repair and review tokens/duration, repository cache and index timing, context recall/precision/distractor rate, and paired wins/losses/ties. A legacy failure is still a failed run; A/B reports are evidence for comparison rather than a release-success shortcut.
 
 This document records a lightweight v0.2.2 comparison of PyFixAgent context strategies. It is meant to explain prompt/context behavior on the included demo workspaces, not to claim broad code repair ability.
 
