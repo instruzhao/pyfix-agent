@@ -119,6 +119,31 @@ def test_container_output_limit_is_an_infrastructure_policy_error(monkeypatch, t
     assert "sandbox policy violation" in result.stderr
 
 
+def test_container_final_workspace_check_catches_fast_writes(monkeypatch, tmp_path):
+    def fake_run(command, **kwargs):
+        return subprocess.CompletedProcess(command, 0, "29.0.0\n", "")
+
+    def fake_bounded(command, **kwargs):
+        (tmp_path / "fast-write.bin").write_bytes(b"x" * 32768)
+        return BoundedProcessResult(0, "", "")
+
+    monkeypatch.setattr(container_module.shutil, "which", lambda engine: f"/bin/{engine}")
+    monkeypatch.setattr(container_module.subprocess, "run", fake_run)
+    monkeypatch.setattr(container_module, "run_bounded_process", fake_bounded)
+
+    result = ContainerSandbox(
+        tmp_path,
+        policy=ContainerPolicy(
+            user="65534:65534",
+            workspace_write_limit="8k",
+        ),
+    ).run(["python", "-c", "print('done')"])
+
+    assert result.exit_code == 125
+    assert result.infrastructure_error is True
+    assert result.policy_violation == "workspace growth exceeded 8192 bytes"
+
+
 def test_container_daemon_preflight_failure_is_an_infrastructure_error(monkeypatch, tmp_path):
     calls: list[list[str]] = []
 

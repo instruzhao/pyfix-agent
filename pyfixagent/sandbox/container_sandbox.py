@@ -185,12 +185,7 @@ class ContainerSandbox:
         )
         next_workspace_check = 0.0
 
-        def check_workspace_budget() -> str | None:
-            nonlocal next_workspace_check
-            now = time.monotonic()
-            if now < next_workspace_check:
-                return None
-            next_workspace_check = now + 0.5
+        def workspace_budget_violation() -> str | None:
             current_size = _workspace_size(workspace, stop_after=workspace_limit)
             if current_size > workspace_limit:
                 return (
@@ -198,6 +193,14 @@ class ContainerSandbox:
                     f"{_parse_size_bytes(self.policy.workspace_write_limit)} bytes"
                 )
             return None
+
+        def check_workspace_budget() -> str | None:
+            nonlocal next_workspace_check
+            now = time.monotonic()
+            if now < next_workspace_check:
+                return None
+            next_workspace_check = now + 0.5
+            return workspace_budget_violation()
 
         try:
             completed = run_bounded_process(
@@ -207,15 +210,18 @@ class ContainerSandbox:
                 policy_check=check_workspace_budget,
                 terminate=lambda: self._force_remove(container_name),
             )
+            policy_violation = completed.policy_violation
+            if not completed.timed_out and policy_violation is None:
+                policy_violation = workspace_budget_violation()
             stderr = completed.stderr
             if completed.timed_out and not stderr:
                 stderr = f"container command timed out after {timeout_seconds}s"
-            if completed.policy_violation:
-                marker = f"sandbox policy violation: {completed.policy_violation}"
+            if policy_violation:
+                marker = f"sandbox policy violation: {policy_violation}"
                 stderr = f"{stderr.rstrip()}\n{marker}".lstrip()
             return CommandResult(
                 command=list(command),
-                exit_code=completed.exit_code,
+                exit_code=125 if policy_violation else completed.exit_code,
                 stdout=completed.stdout,
                 stderr=stderr,
                 duration=time.perf_counter() - start,
@@ -224,10 +230,10 @@ class ContainerSandbox:
                 runtime_command=runtime_command,
                 infrastructure_error=(
                     completed.exit_code in {125, 126, 127}
-                    or completed.policy_violation is not None
+                    or policy_violation is not None
                 ),
                 output_truncated=completed.output_truncated,
-                policy_violation=completed.policy_violation,
+                policy_violation=policy_violation,
             )
         except Exception as exc:
             return CommandResult(

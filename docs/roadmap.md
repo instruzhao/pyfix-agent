@@ -89,7 +89,7 @@
 ## v0.7.1 Resource and Supply-Chain Hardening — Completed
 
 - container execution is the default; local host execution is an explicit trusted-project override
-- bounded host output capture plus single-file, open-file, sampled workspace-growth, IPC, and cleanup controls
+- bounded host output capture plus single-file, open-file, sampled and final workspace-growth, IPC, and cleanup controls
 - non-root image default, digest-pinned base, fully resolved wheel hashes, OCI labels, provenance, and local SBOM verification
 - expiring reviewed-CVE gate, application-layer Scout CI gate, and weekly Docker digest updates
 - CLI selection of reviewed project-specific runner images
