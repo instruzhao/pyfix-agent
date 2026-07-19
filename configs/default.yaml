@@ -34,7 +34,7 @@ sandbox:
     workspace_write_limit: 256m
     file_size_limit: 64m
     open_files_limit: 1024
-    user: "65534:65534"
+    user: workspace_owner
     dependency_policy: image_only
 
 test:

@@ -35,7 +35,7 @@ class ContainerPolicy:
     workspace_write_limit: str = "256m"
     file_size_limit: str = "64m"
     open_files_limit: int = 1024
-    user: str = "65534:65534"
+    user: str = "workspace_owner"
     dependency_policy: str = "image_only"
 
     def __post_init__(self) -> None:
@@ -65,8 +65,10 @@ class ContainerPolicy:
             raise ValueError("container open_files_limit must be at least 32")
         if self.dependency_policy != "image_only":
             raise ValueError("v0.7.1 supports only the image_only dependency policy")
-        if not _USER_PATTERN.fullmatch(self.user):
-            raise ValueError("container user must be an explicit non-root uid[:gid]")
+        if self.user != "workspace_owner" and not _USER_PATTERN.fullmatch(self.user):
+            raise ValueError(
+                "container user must be workspace_owner or an explicit non-root uid[:gid]"
+            )
 
 
 class ContainerSandbox:
@@ -157,8 +159,26 @@ class ContainerSandbox:
                 infrastructure_error=True,
             )
 
+        try:
+            runtime_user = _resolve_runtime_user(self.policy.user, workspace)
+        except ValueError as exc:
+            return CommandResult(
+                command=list(command),
+                exit_code=125,
+                stdout="",
+                stderr=str(exc),
+                duration=time.perf_counter() - start,
+                backend=self.backend,
+                infrastructure_error=True,
+            )
+
         container_name = f"pyfixagent-{uuid.uuid4().hex[:12]}"
-        runtime_command = self._build_runtime_command(command, workspace, container_name)
+        runtime_command = self._build_runtime_command(
+            command,
+            workspace,
+            container_name,
+            runtime_user,
+        )
         initial_workspace_size = _workspace_size(workspace)
         workspace_limit = initial_workspace_size + _parse_size_bytes(
             self.policy.workspace_write_limit
@@ -243,6 +263,7 @@ class ContainerSandbox:
         command: list[str],
         workspace: Path,
         container_name: str,
+        runtime_user: str,
     ) -> list[str]:
         policy = self.policy
         runtime = [
@@ -281,7 +302,7 @@ class ContainerSandbox:
             "--cap-drop",
             "ALL",
             "--user",
-            policy.user,
+            runtime_user,
             "--env",
             "HOME=/tmp",
             "--env",
@@ -402,6 +423,21 @@ def _container_command(command: list[str]) -> list[str]:
     elif executable == "pytest.exe":
         executable = "pytest"
     return [executable, *command[1:]]
+
+
+def _resolve_runtime_user(configured_user: str, workspace: Path) -> str:
+    if configured_user != "workspace_owner":
+        return configured_user
+    if os.name != "posix":
+        return "65534:65534"
+
+    workspace_stat = workspace.stat()
+    if workspace_stat.st_uid <= 0 or workspace_stat.st_gid <= 0:
+        raise ValueError(
+            "container workspace owner resolves to root; configure an explicit non-root "
+            "sandbox.container.user or change the workspace owner"
+        )
+    return f"{workspace_stat.st_uid}:{workspace_stat.st_gid}"
 
 
 def _is_dependency_install(command: list[str]) -> bool:

@@ -40,7 +40,7 @@ def build_sandbox(
         workspace_write_limit=str(container.get("workspace_write_limit", "256m")),
         file_size_limit=str(container.get("file_size_limit", "64m")),
         open_files_limit=int(container.get("open_files_limit", 1024)),
-        user=str(container.get("user", "65534:65534")),
+        user=str(container.get("user", "workspace_owner")),
         dependency_policy=str(container.get("dependency_policy", "image_only")),
     )
     return ContainerSandbox(workspace, timeout_seconds=timeout_seconds, policy=policy)
