@@ -2,9 +2,9 @@
 
 This file is the concise change index. Detailed historical release records and qualification evidence remain under `docs/`.
 
-## 0.7.3 — local working version
+## 0.7.3 — Released 2026-07-25
 
-This local version has not published a package or runner image.
+This release has not published a package or runner image.
 
 - Split repair, benchmark, container, configuration, and metric orchestration into focused units with AST architecture checks that guard their entrypoints.
 - Replaced the default configured model with `qwen3.7-plus` on the existing DashScope OpenAI-compatible endpoint.
@@ -13,6 +13,10 @@ This local version has not published a package or runner image.
 - Added runner-profile validation for Dockerfile CPython, profile metadata, lock-file hashes, and explicit CPython wheel tags.
 
 The existing `pyfixagent-runner:0.7.2` image remains the configured reviewed runner until a separately qualified v0.7.3 image exists.
+
+Full-suite verification on the release source completed with `python -m pytest -q`: **230 passed, 6 skipped** in 131.30 seconds. The skips are conditional environment or integration coverage; no test failed.
+
+See [the v0.7.3 release record](docs/v0.7.3.md) for the verification scope.
 
 ## 0.7.2
 
