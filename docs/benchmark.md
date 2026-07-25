@@ -1,8 +1,8 @@
 # Benchmark
 
-## v0.3 Repeatable Runner
+## Current benchmark runner
 
-The historical results below were produced for v0.2.2. Starting with v0.3, benchmark cases are defined in `benchmarks/cases.yaml` and executed by the installed `pyfixagent-benchmark` command.
+The historical two-workspace observations below were produced for v0.2.2. The current v0.7.2 runner reads cases from `benchmarks/cases.yaml` and is invoked through `pyfixagent-benchmark`.
 
     pyfixagent-benchmark --list
     pyfixagent-benchmark --case demo_project --strategy traceback --repeat 3
@@ -42,7 +42,9 @@ The v0.4.0 four-repetition release report is available at `docs/results/v0.4.0-q
 
 The v0.5.1 `qwen3.6-max-preview` four-repetition release report is available at `docs/results/v0.5.1-qwen3.6-max-preview-repeat4.md`. It qualifies the transactional and semantic-retry workflow while preserving the observed external-holdout failures.
 
-The v0.6.2 final-code qualification report is available at `docs/results/v0.6.2-qwen3.6-max-preview.md`. It records 19/19 completed final successes, all nine new multi-module successes, the documented-contract false-accept correction, and five existing cases left incomplete by provider quota exhaustion.
+The v0.6.2 final-code qualification report is available at `docs/results/v0.6.2-qwen3.6-max-preview.md`. It records 19 completed final successes, including all nine new multi-module cases; five existing cases remained incomplete after provider quota exhaustion.
+
+v0.7.2 adds protocol fingerprints, Wilson intervals, and fail-closed matched-report comparison. Its runner qualification is recorded in `docs/v0.7.2.md` and `docs/results/v0.7.2-runner-qualification.md`; it measures runner behavior and does not make a new repair-rate claim.
 
 ## v0.6.2 Repository-context A/B Protocol
 
@@ -59,7 +61,7 @@ Run paired variants by specifying both repository modes. Each variant receives a
 
 The schema 4 fields retained by report schema 5 separate repair and review tokens/duration, repository cache and index timing, context recall/precision/distractor rate, and paired wins/losses/ties. A legacy failure is still a failed run; A/B reports are evidence for comparison rather than a release-success shortcut.
 
-This document records a lightweight v0.2.2 comparison of PyFixAgent context strategies. It is meant to explain prompt/context behavior on the included demo workspaces, not to claim broad code repair ability.
+The remaining historical section records a lightweight v0.2.2 comparison of context strategies. It explains prompt/context behavior in the included demo workspaces; it is not a broad code-repair evaluation.
 
 ## Benchmark Goal
 

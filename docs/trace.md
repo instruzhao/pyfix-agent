@@ -1,6 +1,6 @@
 # Trace Schema
 
-PyFixAgent writes structured JSON traces so a repair run can be inspected without reading the entire terminal log. The exact trace can evolve, but the fields below are the main v0.2.x reading guide.
+PyFixAgent writes structured JSON traces so a repair run can be inspected without reading the entire terminal log. This guide describes the current v0.7.2 trace contract; older traces remain readable where their fields overlap.
 
 ## Top-level Fields
 
@@ -122,7 +122,7 @@ The script uses only the Python standard library. It reads the trace JSON, repor
 
 ## Benchmark Metrics
 
-The v0.2.2 benchmark reads metrics directly from trace JSON. Top-level `final_summary` fields provide initial failures, final failures, iterations used, modified files, and final status.
+Benchmark reports read their run metrics from trace JSON. The older v0.2.2 demonstration used the same top-level `final_summary` fields for initial failures, final failures, iterations used, modified files, and final status.
 
 Per-iteration `context.stats` fields provide selected file count, selected snippet count, selected context characters, pytest output characters, and prompt characters.
 

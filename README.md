@@ -1,300 +1,128 @@
 # PyFixAgent
 
-PyFixAgent is a test-driven repair agent for local Python projects. It runs pytest, collects failure output, selects relevant source context, asks an LLM for a constrained code edit, applies the edit, reruns pytest, and records a structured trace of the repair attempt.
+PyFixAgent is a test-driven repair prototype for small local Python projects. It runs configured pytest commands, selects bounded failure-related context, requests a constrained edit from an LLM, verifies the edit with pytest, and writes a structured trace and an exported patch.
 
-It is an engineering prototype for demonstrating the repair loop, execution boundaries, evaluation discipline, and traceability. Its container backend reduces host exposure but is not a VM-grade security boundary or a production coding-agent platform.
+The default CLI repairs a temporary Git worktree. It does not change the selected checkout until a user reviews an exported patch and approves its SHA-256 digest. This is an engineering prototype, not a production coding service or a VM-grade sandbox.
 
-## Overview
+## What v0.7.2 provides
 
-The v0.7.2 workflow is transactional, repository-aware, review-gated, execution-policy aware, and cost-observable:
+- Replacement edits by default; unified-diff patch edits are optional.
+- Traceback-based context with bounded static Python import/importer expansion.
+- Checkpoints for partial progress and rollback after regressions or no progress.
+- A separate, bounded semantic-review step after visible tests pass.
+- Local or container test execution. The configured default is an ephemeral Docker container.
+- JSON traces, a standalone trace viewer, benchmark reports, and matched-report comparison.
+- Exported patch approval bound to the exact cleaned-patch SHA-256.
 
-    create a temporary Git worktree
-    run the configured pytest command through a local or container sandbox
-    collect failure output
-    select traceback-driven context
-    expand direct static dependencies under a token budget
-    prompt the model through LiteLLM
-    apply replacement or patch edits
-    rerun pytest
-    record structured trace
-    checkpoint progress or roll back regressions
-    review visible-pass candidates for semantic risks
-    perform bounded evidence-driven revisions
-    export a candidate/final patch and remove the worktree
-    require digest-bound approval before applying it to the selected checkout
+The included benchmark fixtures and release records are local, curated evidence. They are useful for repeatable comparisons, not evidence of general repair performance.
 
-The repository includes two resettable demo workspaces:
+## Requirements
 
-- `workspaces/demo_project`
-- `workspaces/sklearn_iris_tree_project`
+- Python 3.10 or later
+- Git; the selected workspace needs a `HEAD` commit and must be clean unless `--allow-dirty` is supplied
+- An API key for the configured model provider
+- Docker or Podman plus a reviewed runner image for the default container backend
 
-## What PyFixAgent Does
+The checked-in configuration uses DashScope's OpenAI-compatible endpoint and `deepseek-v4-flash`. Select another compatible provider by changing configuration; provider-specific parameters remain the operator's responsibility.
 
-- Runs pytest inside a configured local or container execution boundary.
-- Parses pytest failures and traceback output.
-- Selects relevant Python files using the default `traceback` context strategy.
-- Calls a LiteLLM-backed model.
-- Applies either JSON replacement edits or unified diff patches.
-- Verifies each edit by rerunning pytest.
-- Stores generated patches under `outputs/patches`.
-- Stores structured traces under `outputs/traces`.
+## Quick start
 
-## Features
-
-- Test-driven repair loop for local Python projects.
-- Default `replacement` mode for small exact old/new edits.
-- Optional `patch` mode for unified diff style repairs.
-- Default `traceback` context strategy.
-- Fallback `full` context strategy for small workspaces.
-- Structured trace fields for test summaries, failure deltas, model output, apply results, edit summaries, model call metadata, environment, and final summary.
-- CLI overrides for workspace, mode, context strategy, task, config path, and max iterations.
-- Clean Git workspace checks and a shared edit policy for patch/replacement modes.
-- Repeatable YAML-driven benchmarks with JSON and Markdown reports.
-- Fingerprinted benchmark protocols, Wilson confidence intervals, and fail-closed paired report comparison.
-- Reset script for restoring demo workspaces to their committed failing baselines.
-- Component-based internals with separate repair orchestration, test execution, context, prompting, model, edit backend, retry, trace evaluation, and benchmark responsibilities.
-- Temporary Git worktree execution for the default CLI workflow, leaving the selected repository unchanged.
-- Per-iteration checkpoints with automatic rollback when an edit introduces new test failures.
-- Configurable argv-only pytest commands protected by an explicit command policy.
-- Failure-delta retry decisions that distinguish partial progress, no progress, regressions, and timeouts.
-- Bounded context expansion after rolled-back semantic failures.
-- Independent semantic review with strict JSON, evidence validation, deterministic structural risk cues, and bounded revisions.
-- Execution-free Python repository indexing with content-addressed cache invalidation.
-- Bounded import/importer graph expansion and symbol-range context selection.
-- Paired repository-context A/B benchmarks with context recall and distractor metrics.
-- Separate repair/review token and latency accounting with a bounded reviewer model.
-- Configurable path or source-content trace redaction.
-- Default ephemeral Docker/Podman execution with no network, a read-only root, a single temporary-worktree mount, dropped capabilities, no-new-privileges, and CPU/memory/PID/time limits. Host-local execution requires an explicit trusted-project override.
-- Bounded stdout/stderr capture, single-file limits, open-file limits, and sampled plus final worktree-growth enforcement.
-- Image-only dependency policy, digest-pinned base, minimal/scientific/web hashed Linux wheel profiles, provenance/SBOM verification, and resolved image/runtime metadata in trace schema 1.5.
-- Real Docker and Linux Podman CI smoke coverage plus runner startup/write-limit qualification reports.
-- SHA-256-bound human approval before an exported patch can update a selected checkout.
-- Standalone, script-free HTML trace viewer with a privacy audit.
-
-## Quick Start
-
-Install the project in editable mode:
+Install the project:
 
     python -m pip install -e .
 
-Install the optional scientific dependencies when running the complete benchmark protocol or the sklearn Iris demo:
+Install optional scientific dependencies for the bundled Iris demo and full benchmark validation:
 
     python -m pip install -e ".[benchmark]"
 
-Copy `.env.example` to `.env` and set the API key required by your model provider. The default config uses an OpenAI-compatible DashScope endpoint:
+Copy `.env.example` to `.env` and set the provider key expected by `configs/default.yaml`:
 
     DASHSCOPE_API_KEY=your_api_key_here
 
-The default configured model is `deepseek-v4-flash` through the DashScope OpenAI-compatible endpoint. Thinking mode is enabled without a Qwen-only `thinking_budget` parameter.
+Build the configured scientific runner locally:
 
-Build the default Linux/amd64 scientific runner with provenance metadata:
+    docker build --pull=false -f containers/Dockerfile -t pyfixagent-runner:0.7.2 .
 
-    docker build --pull=false --provenance=mode=max -f containers/Dockerfile -t pyfixagent-runner:0.7.2 .
-
-The repository also provides reviewed `minimal` and `web` dependency profiles. For example:
-
-    docker build --build-arg RUNNER_PROFILE=web --build-arg REQUIREMENTS_LOCK=containers/profiles/web.lock -f containers/Dockerfile -t pyfixagent-runner:0.7.2-web .
-
-Then reset the examples and run the default configured workspace through the container backend:
-
-    python scripts/reset_demo.py --all
-    python -m pyfixagent.main
-
-The container backend is the safety default. Host execution is available only as an explicit trusted-project override:
-
-    python -m pyfixagent.main --sandbox-backend local
-
-Select a separately reviewed project-specific image without editing the main config:
-
-    python -m pyfixagent.main --container-image my-project-runner:reviewed
-
-Verify that the runner has no unreviewed Critical/High CVEs:
-
-    pyfixagent-verify-container --image pyfixagent-runner:0.7.2
-
-Generate a machine-readable local runner qualification without calling a model:
-
-    pyfixagent-qualify-container --image pyfixagent-runner:0.7.2 --repeat 5 --probe-limits
-
-The container path requires a running Docker or Podman daemon. Runtime package installation is disabled; dependencies must be present in the configured image.
-
-## Example Commands
-
-Show CLI options:
-
-    python -m pyfixagent.main --help
-
-Run the billing demo:
+Reset a demo and run it through the default container backend:
 
     python scripts/reset_demo.py --all
     python -m pyfixagent.main --workspace workspaces/demo_project --mode replacement --context-strategy traceback
 
-Run the sklearn iris demo:
+Container execution requires a running Docker or Podman daemon and never installs dependencies at runtime. For a trusted project that cannot use a container, choose the host-process compatibility backend explicitly:
 
-    python scripts/reset_demo.py --all
-    python -m pyfixagent.main --workspace workspaces/sklearn_iris_tree_project --mode replacement --context-strategy traceback
+    python -m pyfixagent.main --sandbox-backend local
 
-Run the project unit tests:
+## Common commands
 
-    pytest -m "not integration"
+Show available CLI options:
 
-List benchmark cases without calling a model:
+    python -m pyfixagent.main --help
+
+Run the project tests without external-service integration tests:
+
+    python -m pytest -m "not integration"
+
+List or validate the benchmark protocol without calling a model:
 
     pyfixagent-benchmark --list
-
-Validate all benchmark fixtures and holdouts without calling a model:
-
     pyfixagent-benchmark --validate
 
-Run each configured benchmark case five times (the CLI default):
+Run the default benchmark protocol (five repetitions per selected case):
 
     pyfixagent-benchmark
 
-Run the v0.6.2 multi-module cases as paired repository-context A/B trials:
+Run paired repository-context variants:
 
     pyfixagent-benchmark --tag v0.6.2 --repository-mode off --repository-mode on --repeat 4
 
-Compare two report-schema-5 runs. The command returns exit status 2 if the manifest, cases, repetitions, strategies, or repository modes drifted, and status 3 for unmatched trials:
+Compare two report-schema-5 runs. It exits with status 2 for protocol drift and status 3 for unmatched trials unless the corresponding override is supplied:
 
     pyfixagent-benchmark-compare outputs/baseline/report.json outputs/candidate/report.json --output-dir outputs/comparison
 
-Benchmark results are written under `outputs/benchmarks/`. Each run copies a read-only fixture into a disposable repository, performs repair in an inner temporary Git worktree, exports the aggregate patch, and removes the repair worktree afterward. The materialized benchmark workspace is also removed unless `--keep-workspaces` is explicitly supplied.
+Audit and render a trace before sharing it:
 
-PyFixAgent includes GitHub Actions coverage for the supported Python matrix, benchmark protocol validation, three hashed runner profiles, real Docker resource-policy tests, and real Linux Podman sandbox tests. Tag builds publish the three GHCR profiles with embedded SBOM/provenance attestations and GitHub OIDC-signed build provenance after profile and sandbox qualification succeeds.
+    pyfixagent-trace-viewer outputs/traces/run_xxx.json --redaction safe --fail-on-audit
 
-Reset generated demo state and remove temporary patches/traces:
+Check an already-built runner image against the local reviewed-CVE allowlist. This command uses Docker Scout and therefore requires that Docker Scout is available:
 
-    python scripts/reset_demo.py --all --clean-outputs
+    pyfixagent-verify-container --image pyfixagent-runner:0.7.2
+
+Measure one local runner's startup and persistent write-limit behavior without making a model call:
+
+    pyfixagent-qualify-container --image pyfixagent-runner:0.7.2 --repeat 5 --probe-limits
+
+## Repair, outputs, and approval
 
 Configuration priority is:
 
     CLI arguments > configs/default.yaml > code defaults
 
-By default, the CLI refuses to run when the selected workspace contains uncommitted changes. Use `--allow-dirty` only when mixing an agent run with existing changes is intentional. Use one or more `--allowed-path` arguments to enforce source-root boundaries.
+The CLI normally requires a clean selected workspace, creates a detached temporary worktree, and writes patches under `outputs/patches/` plus traces under `outputs/traces/`. `--in-place` is a host-only compatibility option and cannot be combined with the container backend.
 
-The CLI repairs a detached temporary Git worktree and exports the final patch under `outputs/patches/`; it does not modify the selected workspace. `--in-place` is an explicit compatibility escape hatch for trusted local workflows and cannot be combined with the container backend.
-
-Applying an exported patch is a two-step operation. The first command validates the clean checkout, edit policy, and patch, then prints the SHA-256 without changing files:
+To apply an exported patch, first preview it. This validates the clean workspace, edit policy, and patch, then prints a digest without changing files:
 
     pyfixagent-apply --workspace workspaces/demo_project --patch outputs/patches/final_xxx.patch --allowed-path src
 
-After inspecting the patch, repeat the command with the exact printed digest:
+After reviewing the patch, repeat the command with that exact digest:
 
     pyfixagent-apply --workspace workspaces/demo_project --patch outputs/patches/final_xxx.patch --allowed-path src --approve <SHA-256>
 
-Test commands are configured as argv lists rather than shell strings:
+The application leaves changes uncommitted for normal review.
 
-    test:
-      commands:
-        - [python, -m, pytest, -p, no:cacheprovider]
+## Execution boundary
 
-Only direct `pytest` or `python -m pytest` commands are accepted.
+The container backend mounts only the disposable worktree and applies network, privilege, resource, output, file-size, and workspace-growth policies. It is defense in depth: containers share the host kernel, daemon configuration and bind-mount behavior remain relevant, and sampled workspace-growth monitoring can miss an immediate create/delete burst. The local backend is not a security sandbox.
 
-## Repair Modes
+The reviewed `minimal`, `scientific`, and `web` Linux/amd64 images use a digest-pinned base and hash-locked Python wheels. They are finite dependency profiles, not universal Python environments. See [runner-image instructions](containers/README.md) for profiles, derived images, and tag-publication behavior.
 
-`replacement` is the default mode. The model returns a JSON array of small edits with `path`, `old`, `new`, and optional `start_line`. PyFixAgent validates workspace paths, rejects edits outside the workspace, rejects test-file modifications, and requires exact old-text matching. This mode is designed for reliable small-scope edits.
+## Documentation
 
-`patch` is optional. The model returns a unified diff patch. PyFixAgent cleans the patch text, checks it with `git apply --check -`, applies it with `git apply -`, and then reruns pytest. If patch mode repeatedly fails validation, the agent can fall back to replacement mode.
+- [Design and architecture](docs/design.md)
+- [Limits and operating boundaries](docs/limitations.md)
+- [Trace schema guide](docs/trace.md)
+- [Benchmark protocol and historical observations](docs/benchmark.md)
+- [v0.7.2 release record](docs/v0.7.2.md)
+- [v0.7.2 runner qualification record](docs/results/v0.7.2-runner-qualification.md)
+- [Roadmap](docs/roadmap.md)
 
-## Context Strategy
-
-The default context strategy is `traceback`. It seeds context from:
-
-- failing test files
-- traceback source files
-- modules directly imported by failing tests
-
-v0.6.1 then uses a static AST index to follow direct imports and reverse importers up to the configured depth. Related symbols are preferred when their names are referenced by the seed evidence, and selected source is clipped to `context.max_selected_tokens`. The index is content-addressed, cached outside the repair workspace, and rebuilt after a source edit changes its fingerprint.
-
-This remains intentionally bounded: it does not execute imports, resolve dynamic dispatch, index non-Python languages, use embeddings, or provide RAG. For very small workspaces, `--context-strategy full` can include all Python files while still honoring the configured source-context budget.
-
-## Structured Trace
-
-Structured trace is the main repair visibility feature. Each run records enough structured data to understand what happened without reading the full pytest log:
-
-- `test_summary_before` and `test_summary_after`
-- `failure_delta`
-- `iteration_result`
-- `context`
-- `model_output`
-- `apply`
-- `generated_diff`
-- `edit_summary`
-- `model_call`
-- `environment`
-- `final_summary`
-
-See `docs/trace.md` for the field guide.
-
-The default `trace.redaction_mode: paths` replaces known local workspace, project, and home roots. Use `--trace-redaction safe` to hash source-bearing prompts, diffs, model output, tasks, and pytest logs while retaining structured metrics. Redaction is a publication aid, not a general secret scanner; review traces before sharing them.
-
-You can summarize a structured trace JSON with:
-
-    python scripts/summarize_trace.py outputs/traces/run_xxx.json
-
-The summary reports final status, iteration count, failure deltas, selected context size, modified files, and model metadata.
-
-Audit and render a standalone static viewer. `safe` redaction is recommended before sharing the HTML:
-
-    pyfixagent-trace-viewer outputs/traces/run_xxx.json --redaction safe --fail-on-audit
-
-## Demo Benchmark
-
-v0.2.2 includes a small benchmark comparing traceback-driven context selection with full-workspace context on resettable demo workspaces. The benchmark tracks prompt size, selected files, iterations, failure deltas, modified files, and final test status.
-
-It covers:
-
-- `workspaces/demo_project`
-- `workspaces/sklearn_iris_tree_project`
-
-See `docs/benchmark.md` for detailed results. This benchmark compares context strategy behavior; it is not an academic benchmark, not comparable to SWE-bench, and not a claim of production-grade repair ability.
-
-The benchmark runner generates tasks from allowed paths and cannot accept case-specific hints. Agent-visible tests live inside each fixture; holdout tests live outside the fixture and run only after the repair loop. v0.6.2 manifest schema 3 adds evaluation-only context ground truth and tags; v0.7.2 report schema 5 adds protocol provenance, confidence intervals, and fail-closed matched report comparison on top of the schema 4 A/B, retrieval, cache, and cost metrics.
-
-See `docs/results/v0.3.1-qwen3.6-flash.md` for a sanitized one-run report across all 15 cases.
-
-The v0.4.0 release qualification repeated all 15 cases four times. It reached 100% visible-test success and 91.7% external-holdout success across 60 runs. See `docs/results/v0.4.0-qwen3.6-flash-repeat4.md` for the sanitized report and failure analysis.
-
-v0.4.1 is a maintenance release that declares the optional scientific benchmark dependencies and separates benchmark validation from the multi-version unit-test matrix. It does not change repair behavior or invalidate the v0.4.0 real-model qualification result. See `docs/v0.4.1.md` for the release notes.
-
-v0.5.0 moves the default CLI repair into a temporary Git worktree, adds checkpoints and regression rollback, exports a reviewable final patch, and introduces policy-checked configurable pytest commands. See `docs/v0.5.0.md` for the release notes.
-
-v0.5.1 moves semantic retry decisions into `RetryPolicy`: partial progress is checkpointed, while no-progress attempts and regressions are rolled back before retrying with bounded expanded context. Its `qwen3.6-max-preview` release qualification reached 100% visible-test success and 86.7% external-holdout success across 60 runs. See `docs/v0.5.1.md` for the release notes and `docs/results/v0.5.1-qwen3.6-max-preview-repeat4.md` for the sanitized report.
-
-v0.6.0 separates visible-test success from final semantic acceptance. An independent reviewer can accept a candidate, request a bounded evidence-driven revision, or return `needs_review`; external holdouts remain inaccessible to the agent. Its one-run `qwen3.6-max-preview` qualification passed all 15 visible suites and all 15 external holdouts with zero false accepts or false rejects. See `docs/v0.6.0.md` for the release notes and `docs/results/v0.6.0-qwen3.6-max-preview.md` for the sanitized report.
-
-v0.6.1 adds an execution-free Python repository index, direct import/importer expansion, symbol-range selection, content-addressed cache invalidation, and deterministic token budgeting shared by repair and review context. Its one-run `qwen3.6-max-preview` qualification again passed all 15 visible suites and external holdouts. See `docs/v0.6.1.md` for the release notes and `docs/results/v0.6.1-qwen3.6-max-preview.md` for the sanitized report.
-
-v0.6.2 expands the benchmark to 24 cases, adds nine multi-module context-ground-truth fixtures, paired repository-on/off runs, separate repair/review costs, bounded reviewer generation, documented-contract checks, and trace privacy modes. Its final-code qualification completed 19/19 full successes, including all nine new cases; five additional existing cases remain explicitly incomplete after provider quota exhaustion. See `docs/v0.6.2.md` for the release notes and `docs/results/v0.6.2-qwen3.6-max-preview.md` for the sanitized evidence.
-
-v0.6.3 makes thinking controls provider-safe and changes the final local default to `deepseek-v4-flash` after a real repair smoke test. The generic repair/review workflow remains model-independent, and explicitly configured compatible providers can still use their own thinking budgets. See `docs/v0.6.3.md` for details.
-
-v0.7.0 adds a container-backed execution boundary, resource and network policies, image-only dependency capture, digest-bound patch approval, trace schema 1.5 execution metadata, privacy audit, and a static HTML trace viewer. See `docs/v0.7.0.md` for details.
-
-v0.7.1 makes the container backend the default, bounds host-side output and worktree growth, adds hard file/open-file limits, makes the image non-root by default, requires hashed wheel artifacts, records provenance/SBOM evidence, and adds an expiring Critical/High CVE gate. See `docs/v0.7.1.md` for details.
-
-v0.7.2 formalizes the Linux fixes made after the v0.7.1 tag, adds protocol-fingerprinted benchmark evidence and matched comparison, qualifies minimal/scientific/web hashed runners, adds real Linux Podman CI, publishes OIDC-attested GHCR images on version tags, and records container startup plus write-limit behavior without making a model call. See `docs/v0.7.2.md` for details.
-
-## Limitations
-
-- The local backend is not a security sandbox; the container backend is defense in depth, not VM-grade isolation.
-- Designed for small local Python projects.
-- pytest is the main validation signal.
-- Repository understanding is static, Python-only, and bounded.
-- No vector database or RAG.
-- No dynamic call graph or cross-language dependency graph.
-- No GitHub PR or issue integration.
-- LLM output reliability is not guaranteed.
-- Path-only traces can still contain sensitive source code; safe mode is not a complete secret scanner.
-
-See `docs/limitations.md` for the full boundary statement.
-
-## Roadmap
-
-Completed v0.2.x work includes the test-driven repair loop, replacement and patch modes, traceback-driven context selection, structured traces, CLI/config polish, resettable examples, and lightweight benchmark documentation.
-
-Future work is listed in `docs/roadmap.md`. Items there are not implemented unless marked completed.
-
-## Project Status
-
-PyFixAgent v0.7.2 is a transactional repair baseline with constrained edits, temporary-worktree execution, semantic rollback/retry, bounded static repository context, provider-safe review, holdout validation, cost accounting, configurable trace privacy, reproducible benchmark evidence, and a default hardened container test boundary. Local execution remains an explicit trusted-project compatibility option. Container execution mounts only the disposable worktree and applies privilege, network, process, memory, output, file, and workspace-growth policies; exported patches still require separate digest-bound approval before touching the selected checkout.
+The CI workflow tests supported Python versions, validates the benchmark protocol, and exercises Docker and Linux Podman container paths. Version-tag publication is defined in `.github/workflows/release-runner.yml`; it builds and smoke-tests each profile before publishing the corresponding GHCR image and attaching provenance/SBOM attestations.
