@@ -167,7 +167,7 @@ def collect_environment(workspace: str | Path, execution: dict | None = None) ->
         import pytest
 
         pytest_version = pytest.__version__
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         pytest_version = None
 
     environment = {

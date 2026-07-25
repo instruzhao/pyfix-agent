@@ -7,6 +7,10 @@ from pathlib import Path
 from pyfixagent.execution.workspace_transaction import WorkspaceTransaction
 from pyfixagent.tools.file_tools import list_files
 from pyfixagent.workspace import clean_workspace_error, inspect_workspace
+from pyfixagent.utils.logger import get_logger
+
+
+logger = get_logger(__name__)
 
 
 @dataclass(frozen=True)
@@ -53,7 +57,8 @@ class WorkspaceSession:
             )
         try:
             active = self.transaction.begin(state)
-        except Exception as exc:
+        except (OSError, RuntimeError) as exc:
+            logger.exception("failed to prepare repair workspace")
             return PreparedWorkspace(
                 workspace=self.workspace,
                 file_tree="",

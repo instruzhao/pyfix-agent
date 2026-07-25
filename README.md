@@ -4,7 +4,7 @@ PyFixAgent is a test-driven repair prototype for small local Python projects. It
 
 The default CLI repairs a temporary Git worktree. It does not change the selected checkout until a user reviews an exported patch and approves its SHA-256 digest. This is an engineering prototype, not a production coding service or a VM-grade sandbox.
 
-## What v0.7.2 provides
+## What v0.7.3 provides locally
 
 - Replacement edits by default; unified-diff patch edits are optional.
 - Traceback-based context with bounded static Python import/importer expansion.
@@ -23,7 +23,9 @@ The included benchmark fixtures and release records are local, curated evidence.
 - An API key for the configured model provider
 - Docker or Podman plus a reviewed runner image for the default container backend
 
-The checked-in configuration uses DashScope's OpenAI-compatible endpoint and `deepseek-v4-flash`. Select another compatible provider by changing configuration; provider-specific parameters remain the operator's responsibility.
+The checked-in configuration uses DashScope's OpenAI-compatible endpoint and `qwen3.7-plus`. Select another compatible provider by changing configuration; provider-specific parameters remain the operator's responsibility.
+
+This local v0.7.3 source snapshot continues to use the separately reviewed `pyfixagent-runner:0.7.2` image. It does not claim that a v0.7.3 runner image has been built or qualified.
 
 ## Quick start
 
@@ -121,7 +123,7 @@ The reviewed `minimal`, `scientific`, and `web` Linux/amd64 images use a digest-
 - [Limits and operating boundaries](docs/limitations.md)
 - [Trace schema guide](docs/trace.md)
 - [Benchmark protocol and historical observations](docs/benchmark.md)
-- [v0.7.2 release record](docs/v0.7.2.md)
+- [Changelog](CHANGELOG.md)
 - [v0.7.2 runner qualification record](docs/results/v0.7.2-runner-qualification.md)
 - [Roadmap](docs/roadmap.md)
 

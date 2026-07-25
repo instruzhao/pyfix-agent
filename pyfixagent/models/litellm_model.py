@@ -4,6 +4,10 @@ from typing import Any
 from litellm import completion
 
 from pyfixagent.models.base import BaseModel
+from pyfixagent.utils.logger import get_logger
+
+
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -42,6 +46,7 @@ class LiteLLMModel(BaseModel):
                 raise ValueError("model returned an empty patch")
             return content
         except Exception as exc:
+            logger.exception("LiteLLM patch generation failed for %s", self.model_name)
             raise RuntimeError(f"LiteLLM patch generation failed: {exc}") from exc
 
     def _messages(self, system_prompt: str, user_prompt: str) -> list[dict[str, str]]:

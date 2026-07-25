@@ -6,6 +6,11 @@ import threading
 import time
 from typing import Callable
 
+from pyfixagent.utils.logger import get_logger
+
+
+logger = get_logger(__name__)
+
 
 @dataclass(frozen=True)
 class BoundedProcessResult:
@@ -115,12 +120,12 @@ def run_bounded_process(
             try:
                 terminate()
             except Exception:
-                pass
+                logger.exception("bounded process termination callback failed")
         if process.poll() is None:
             try:
                 process.kill()
-            except Exception:
-                pass
+            except OSError:
+                logger.exception("failed to kill bounded process")
 
     try:
         exit_code = process.wait(timeout=5)
@@ -158,5 +163,5 @@ def _drain_stream(stream, stream_name: str, capture: _OutputCapture) -> None:
     finally:
         try:
             stream.close()
-        except Exception:
-            pass
+        except OSError:
+            logger.debug("failed to close process output stream", exc_info=True)

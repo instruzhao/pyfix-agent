@@ -1,12 +1,19 @@
+import ast
+import inspect
+from pathlib import Path
 import subprocess
 
 import pytest
 
+import pyfixagent.benchmarking.metrics as metrics_module
+import pyfixagent.benchmarking.runner as runner_module
+import pyfixagent.main as main_module
 from pyfixagent.agent.default_agent import DefaultAgent
 from pyfixagent.context.policy import ContextExpansionPolicy
 from pyfixagent.benchmark import run_benchmark as facade_run_benchmark
 from pyfixagent.benchmarking.runner import run_benchmark as modular_run_benchmark
 from pyfixagent.core.contracts import ApplyResult
+from pyfixagent.core.engine import EngineServices, RepairEngine
 from pyfixagent.models.base import BaseModel
 from pyfixagent.models.litellm_model import LiteLLMModel
 from pyfixagent.models.mock_model import MockModel
@@ -16,6 +23,7 @@ from pyfixagent.repair.model_client import ModelClient, ModelGenerationError
 from pyfixagent.repair.retry_policy import RetryPolicy
 from pyfixagent.context.repository import RepositoryContextExpander
 from pyfixagent.sandbox.local_sandbox import LocalSandbox
+from pyfixagent.sandbox.container_sandbox import ContainerSandbox
 from pyfixagent.tools.edit_policy import EditPolicy
 
 
@@ -199,6 +207,145 @@ def test_default_agent_is_a_component_assembly_facade(tmp_path):
     assert isinstance(engine.backends["patch"], PatchBackend)
     assert isinstance(engine.backends["replacement"], ReplacementBackend)
     assert engine.test_runner.sandbox is agent.sandbox
+
+
+def test_repair_engine_keeps_run_as_small_orchestrator(tmp_path):
+    workspace = init_git_workspace(tmp_path)
+    agent = DefaultAgent(
+        model=MockModel([]),
+        sandbox=LocalSandbox(workspace),
+        patch_output_dir=tmp_path / "patches",
+    )
+    engine = agent._build_engine()
+    source = inspect.getsource(RepairEngine)
+    tree = ast.parse(source)
+    repair_engine = next(node for node in tree.body if isinstance(node, ast.ClassDef))
+    methods = {
+        node.name: node
+        for node in repair_engine.body
+        if isinstance(node, ast.FunctionDef)
+    }
+
+    assert isinstance(engine.services, EngineServices)
+    assert len(inspect.signature(RepairEngine.__init__).parameters) == 2
+    assert methods["run"].end_lineno - methods["run"].lineno + 1 <= 35
+    assert {
+        "_prepare",
+        "_plan_and_generate",
+        "_apply",
+        "_verify",
+        "_accept_or_retry",
+        "_run_semantic_review",
+        "_record_review",
+        "_apply_review_decision",
+        "_close_workspace",
+    } <= methods.keys()
+    assert max(method.end_lineno - method.lineno + 1 for method in methods.values()) <= 65
+    assert not any(
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "print"
+        for node in ast.walk(repair_engine)
+    )
+
+
+def test_other_orchestration_entrypoints_stay_small_and_delegated():
+    runner_tree = ast.parse(inspect.getsource(runner_module))
+    main_tree = ast.parse(inspect.getsource(main_module))
+    metrics_tree = ast.parse(inspect.getsource(metrics_module))
+    container_tree = ast.parse(inspect.getsource(ContainerSandbox))
+
+    runner_functions = _function_nodes(runner_tree)
+    main_functions = _function_nodes(main_tree)
+    metrics_functions = _function_nodes(metrics_tree)
+    container_class = next(node for node in container_tree.body if isinstance(node, ast.ClassDef))
+    container_functions = {
+        node.name: node for node in container_class.body if isinstance(node, ast.FunctionDef)
+    }
+    runner_class = next(node for node in runner_tree.body if isinstance(node, ast.ClassDef) and node.name == "BenchmarkRunner")
+    runner_methods = [node for node in runner_class.body if isinstance(node, ast.FunctionDef)]
+
+    assert _line_count(runner_functions["run_benchmark"]) <= 20
+    assert _line_count(runner_functions["build_run_record"]) <= 35
+    assert _line_count(main_functions["resolve_runtime_config"]) <= 20
+    assert _line_count(main_functions["main"]) <= 25
+    assert _line_count(metrics_functions["summarize_runs"]) <= 15
+    assert _line_count(container_functions["run"]) <= 25
+    assert max(_line_count(method) for method in runner_methods) <= 65
+    assert max(_line_count(function) for function in runner_functions.values()) <= 65
+    assert max(_line_count(function) for function in main_functions.values()) <= 65
+    assert max(_line_count(function) for function in metrics_functions.values()) <= 65
+    assert max(_line_count(function) for function in container_functions.values()) <= 65
+    assert {"_run_variant", "_run_prepared_workspace", "_cleanup_variant"} <= {
+        method.name for method in runner_methods
+    }
+
+
+def test_broad_exception_boundaries_are_explicit_and_stack_logged():
+    root = Path(__file__).resolve().parents[1]
+    expected = {
+        ("benchmarking/runner.py", "_run_variant"),
+        ("models/litellm_model.py", "generate_patch"),
+        ("repair/model_client.py", "generate"),
+        ("sandbox/bounded_process.py", "run_bounded_process"),
+    }
+    found: set[tuple[str, str]] = set()
+    for path in (root / "pyfixagent").rglob("*.py"):
+        relative = path.relative_to(root / "pyfixagent").as_posix()
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for function in (node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)):
+            for handler in (node for node in ast.walk(function) if isinstance(node, ast.ExceptHandler)):
+                if not isinstance(handler.type, ast.Name) or handler.type.id != "Exception":
+                    continue
+                found.add((relative, function.name))
+                assert any(
+                    isinstance(call, ast.Call)
+                    and isinstance(call.func, ast.Attribute)
+                    and isinstance(call.func.value, ast.Name)
+                    and call.func.value.id == "logger"
+                    and call.func.attr == "exception"
+                    for call in ast.walk(handler)
+                )
+    assert found == expected
+
+
+def test_print_calls_are_limited_to_cli_or_human_facing_output():
+    root = Path(__file__).resolve().parents[1]
+    allowed = {
+        "pyfixagent/apply.py",
+        "pyfixagent/benchmarking/cli.py",
+        "pyfixagent/benchmarking/compare_cli.py",
+        "pyfixagent/container_benchmark.py",
+        "pyfixagent/container_security.py",
+        "pyfixagent/trace_viewer.py",
+        "scripts/reset_demo.py",
+        "scripts/summarize_trace.py",
+        "scripts/validate_runner_locks.py",
+    }
+    paths_with_prints = set()
+    for base in (root / "pyfixagent", root / "scripts"):
+        for path in base.rglob("*.py"):
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            if any(
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "print"
+                for node in ast.walk(tree)
+            ):
+                paths_with_prints.add(path.relative_to(root).as_posix())
+    assert paths_with_prints == allowed
+
+
+def _function_nodes(tree: ast.AST) -> dict[str, ast.FunctionDef]:
+    return {
+        node.name: node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef)
+    }
+
+
+def _line_count(node: ast.FunctionDef) -> int:
+    return node.end_lineno - node.lineno + 1
 
 
 def test_default_agent_assembles_one_shared_repository_context_service(tmp_path):

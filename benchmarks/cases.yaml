@@ -160,3 +160,30 @@ cases:
     context_required_paths: [src/orders/service.py]
     context_relevant_paths: [tests/test_visible.py, src/orders/__init__.py, src/orders/api.py, src/orders/service.py]
     context_distractor_paths: [src/orders/archive.py, src/orders/notifications.py]
+
+  - id: multifile_proration
+    fixture: benchmarks/fixtures/multifile_proration
+    holdout: benchmarks/holdouts/multifile_proration
+    allowed_paths: [src]
+    tags: [multifile, decimal, v0.7.3]
+    context_required_paths: [src/billing/allocation.py]
+    context_relevant_paths: [tests/test_visible.py, src/billing/api.py, src/billing/service.py, src/billing/allocation.py]
+    context_distractor_paths: [src/billing/audit.py, src/billing/formatting.py]
+
+  - id: multifile_token_rotation
+    fixture: benchmarks/fixtures/multifile_token_rotation
+    holdout: benchmarks/holdouts/multifile_token_rotation
+    allowed_paths: [src]
+    tags: [multifile, state, v0.7.3]
+    context_required_paths: [src/tokens/registry.py]
+    context_relevant_paths: [tests/test_visible.py, src/tokens/api.py, src/tokens/service.py, src/tokens/registry.py]
+    context_distractor_paths: [src/tokens/audit.py, src/tokens/report.py]
+
+  - id: multifile_booking_timezone
+    fixture: benchmarks/fixtures/multifile_booking_timezone
+    holdout: benchmarks/holdouts/multifile_booking_timezone
+    allowed_paths: [src]
+    tags: [multifile, datetime, v0.7.3]
+    context_required_paths: [src/calendar/intervals.py]
+    context_relevant_paths: [tests/test_visible.py, src/calendar/api.py, src/calendar/service.py, src/calendar/intervals.py]
+    context_distractor_paths: [src/calendar/export.py, src/calendar/reminders.py]

@@ -13,11 +13,13 @@ import uuid
 from pyfixagent.sandbox.base import CommandResult
 from pyfixagent.sandbox.bounded_process import run_bounded_process
 from pyfixagent.sandbox.policy import is_command_allowed
+from pyfixagent.utils.logger import get_logger
 
 
 _IMAGE_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/:@-]*$")
 _SIZE_PATTERN = re.compile(r"^[1-9][0-9]*(?:[kKmMgG])?[bB]?$|^[1-9][0-9]*$")
 _USER_PATTERN = re.compile(r"^[1-9][0-9]*(?::[1-9][0-9]*)?$")
+logger = get_logger(__name__)
 
 
 @dataclass(frozen=True)
@@ -64,11 +66,46 @@ class ContainerPolicy:
         if self.open_files_limit < 32:
             raise ValueError("container open_files_limit must be at least 32")
         if self.dependency_policy != "image_only":
-            raise ValueError("v0.7.2 supports only the image_only dependency policy")
+            raise ValueError("the configured runner supports only the image_only dependency policy")
         if self.user != "workspace_owner" and not _USER_PATTERN.fullmatch(self.user):
             raise ValueError(
                 "container user must be workspace_owner or an explicit non-root uid[:gid]"
             )
+
+
+@dataclass(frozen=True)
+class ContainerRunContext:
+    command: list[str]
+    timeout_seconds: int
+    workspace: Path
+    runtime_user: str
+    container_name: str
+    started_at: float
+
+
+@dataclass
+class WorkspaceBudget:
+    workspace: Path
+    limit: int
+    allowed_growth: int
+    next_check_at: float = 0.0
+
+    @classmethod
+    def from_policy(cls, workspace: Path, write_limit: str) -> "WorkspaceBudget":
+        allowed_growth = _parse_size_bytes(write_limit)
+        return cls(workspace, _workspace_size(workspace) + allowed_growth, allowed_growth)
+
+    def violation(self) -> str | None:
+        if _workspace_size(self.workspace, stop_after=self.limit) > self.limit:
+            return f"workspace growth exceeded {self.allowed_growth} bytes"
+        return None
+
+    def check(self) -> str | None:
+        now = time.monotonic()
+        if now < self.next_check_at:
+            return None
+        self.next_check_at = now + 0.5
+        return self.violation()
 
 
 class ContainerSandbox:
@@ -104,148 +141,124 @@ class ContainerSandbox:
     def run(self, command: list[str], timeout: int | None = None) -> CommandResult:
         start = time.perf_counter()
         timeout_seconds = max(1, int(timeout or self.timeout_seconds))
+        validation_error = self._validate_command(command)
+        if validation_error:
+            return self._infrastructure_result(command, 126, validation_error, start)
+        context = self._prepare_run_context(command, timeout_seconds, start)
+        if isinstance(context, CommandResult):
+            return context
+        return self._execute_context(context)
+
+    def _validate_command(self, command: list[str]) -> str | None:
         allowed, reason = is_command_allowed(command)
         if not allowed:
-            return CommandResult(
-                command=list(command),
-                exit_code=126,
-                stdout="",
-                stderr=reason or "command is not allowed",
-                duration=time.perf_counter() - start,
-                backend=self.backend,
-                infrastructure_error=True,
-            )
+            return reason or "command is not allowed"
         if _is_dependency_install(command):
-            return CommandResult(
-                command=list(command),
-                exit_code=126,
-                stdout="",
-                stderr="runtime dependency installation is blocked by the image_only policy",
-                duration=time.perf_counter() - start,
-                backend=self.backend,
-                infrastructure_error=True,
-            )
-        if shutil.which(self.policy.engine) is None:
-            return CommandResult(
-                command=list(command),
-                exit_code=127,
-                stdout="",
-                stderr=f"container runtime is not installed or not on PATH: {self.policy.engine}",
-                duration=time.perf_counter() - start,
-                backend=self.backend,
-                infrastructure_error=True,
-            )
-        ready, runtime_error = self._preflight_runtime(timeout_seconds)
-        if not ready:
-            return CommandResult(
-                command=list(command),
-                exit_code=125,
-                stdout="",
-                stderr=runtime_error or "container runtime daemon is unavailable",
-                duration=time.perf_counter() - start,
-                backend=self.backend,
-                infrastructure_error=True,
-            )
+            return "runtime dependency installation is blocked by the image_only policy"
+        return None
 
+    def _prepare_run_context(
+        self,
+        command: list[str],
+        timeout_seconds: int,
+        started_at: float,
+    ) -> ContainerRunContext | CommandResult:
+        runtime_error = self._runtime_error(timeout_seconds)
+        if runtime_error:
+            return self._infrastructure_result(command, 127 if "not installed" in runtime_error else 125, runtime_error, started_at)
         workspace = self.workspace.resolve()
         if not workspace.is_dir():
-            return CommandResult(
-                command=list(command),
-                exit_code=1,
-                stdout="",
-                stderr=f"container workspace does not exist: {workspace}",
-                duration=time.perf_counter() - start,
-                backend=self.backend,
-                infrastructure_error=True,
+            return self._infrastructure_result(
+                command, 1, f"container workspace does not exist: {workspace}", started_at
             )
-
         try:
             runtime_user = _resolve_runtime_user(self.policy.user, workspace)
         except ValueError as exc:
-            return CommandResult(
-                command=list(command),
-                exit_code=125,
-                stdout="",
-                stderr=str(exc),
-                duration=time.perf_counter() - start,
-                backend=self.backend,
-                infrastructure_error=True,
-            )
+            return self._infrastructure_result(command, 125, str(exc), started_at)
+        return ContainerRunContext(
+            command=list(command),
+            timeout_seconds=timeout_seconds,
+            workspace=workspace,
+            runtime_user=runtime_user,
+            container_name=f"pyfixagent-{uuid.uuid4().hex[:12]}",
+            started_at=started_at,
+        )
 
-        container_name = f"pyfixagent-{uuid.uuid4().hex[:12]}"
+    def _runtime_error(self, timeout_seconds: int) -> str | None:
+        if shutil.which(self.policy.engine) is None:
+            return f"container runtime is not installed or not on PATH: {self.policy.engine}"
+        ready, error = self._preflight_runtime(timeout_seconds)
+        return None if ready else error or "container runtime daemon is unavailable"
+
+    def _execute_context(self, context: ContainerRunContext) -> CommandResult:
         runtime_command = self._build_runtime_command(
-            command,
-            workspace,
-            container_name,
-            runtime_user,
+            context.command,
+            context.workspace,
+            context.container_name,
+            context.runtime_user,
         )
-        initial_workspace_size = _workspace_size(workspace)
-        workspace_limit = initial_workspace_size + _parse_size_bytes(
-            self.policy.workspace_write_limit
-        )
-        next_workspace_check = 0.0
-
-        def workspace_budget_violation() -> str | None:
-            current_size = _workspace_size(workspace, stop_after=workspace_limit)
-            if current_size > workspace_limit:
-                return (
-                    "workspace growth exceeded "
-                    f"{_parse_size_bytes(self.policy.workspace_write_limit)} bytes"
-                )
-            return None
-
-        def check_workspace_budget() -> str | None:
-            nonlocal next_workspace_check
-            now = time.monotonic()
-            if now < next_workspace_check:
-                return None
-            next_workspace_check = now + 0.5
-            return workspace_budget_violation()
-
+        budget = WorkspaceBudget.from_policy(context.workspace, self.policy.workspace_write_limit)
         try:
             completed = run_bounded_process(
                 runtime_command,
-                timeout_seconds=timeout_seconds,
+                timeout_seconds=context.timeout_seconds,
                 max_output_bytes=_parse_size_bytes(self.policy.output_limit),
-                policy_check=check_workspace_budget,
-                terminate=lambda: self._force_remove(container_name),
+                policy_check=budget.check,
+                terminate=lambda: self._force_remove(context.container_name),
             )
-            policy_violation = completed.policy_violation
-            if not completed.timed_out and policy_violation is None:
-                policy_violation = workspace_budget_violation()
-            stderr = completed.stderr
-            if completed.timed_out and not stderr:
-                stderr = f"container command timed out after {timeout_seconds}s"
-            if policy_violation:
-                marker = f"sandbox policy violation: {policy_violation}"
-                stderr = f"{stderr.rstrip()}\n{marker}".lstrip()
-            return CommandResult(
-                command=list(command),
-                exit_code=125 if policy_violation else completed.exit_code,
-                stdout=completed.stdout,
-                stderr=stderr,
-                duration=time.perf_counter() - start,
-                timeout=completed.timed_out,
-                backend=self.backend,
+        except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
+            logger.exception("container command could not start: %s", context.container_name)
+            return self._infrastructure_result(
+                context.command,
+                1,
+                f"failed to run container command: {exc}",
+                context.started_at,
                 runtime_command=runtime_command,
-                infrastructure_error=(
-                    completed.exit_code in {125, 126, 127}
-                    or policy_violation is not None
-                ),
-                output_truncated=completed.output_truncated,
-                policy_violation=policy_violation,
             )
-        except Exception as exc:
-            return CommandResult(
-                command=list(command),
-                exit_code=1,
-                stdout="",
-                stderr=f"failed to run container command: {exc}",
-                duration=time.perf_counter() - start,
-                backend=self.backend,
-                runtime_command=runtime_command,
-                infrastructure_error=True,
-            )
+        return self._command_result(context, runtime_command, completed, budget.violation())
+
+    def _command_result(self, context, runtime_command, completed, final_budget_violation) -> CommandResult:
+        policy_violation = completed.policy_violation or (
+            None if completed.timed_out else final_budget_violation
+        )
+        stderr = completed.stderr
+        if completed.timed_out and not stderr:
+            stderr = f"container command timed out after {context.timeout_seconds}s"
+        if policy_violation:
+            stderr = f"{stderr.rstrip()}\nsandbox policy violation: {policy_violation}".lstrip()
+        return CommandResult(
+            command=context.command,
+            exit_code=125 if policy_violation else completed.exit_code,
+            stdout=completed.stdout,
+            stderr=stderr,
+            duration=time.perf_counter() - context.started_at,
+            timeout=completed.timed_out,
+            backend=self.backend,
+            runtime_command=runtime_command,
+            infrastructure_error=completed.exit_code in {125, 126, 127} or policy_violation is not None,
+            output_truncated=completed.output_truncated,
+            policy_violation=policy_violation,
+        )
+
+    def _infrastructure_result(
+        self,
+        command: list[str],
+        exit_code: int,
+        error: str,
+        started_at: float,
+        *,
+        runtime_command: list[str] | None = None,
+    ) -> CommandResult:
+        return CommandResult(
+            command=list(command),
+            exit_code=exit_code,
+            stdout="",
+            stderr=error,
+            duration=time.perf_counter() - started_at,
+            backend=self.backend,
+            runtime_command=runtime_command,
+            infrastructure_error=True,
+        )
 
     def environment_metadata(self) -> dict:
         if self._runtime_metadata is None or (
@@ -272,7 +285,20 @@ class ContainerSandbox:
         runtime_user: str,
     ) -> list[str]:
         policy = self.policy
-        runtime = [
+        runtime = self._runtime_options(workspace, container_name)
+        runtime.extend(self._security_options(runtime_user))
+        if policy.engine == "podman" and policy.user == "workspace_owner":
+            # Rootless Podman otherwise maps the host owner's numeric UID to a
+            # subordinate ID, making the bind-mounted worktree inaccessible.
+            runtime.extend(["--userns", "keep-id"])
+        if policy.read_only_root:
+            runtime.extend(["--read-only", "--tmpfs", f"/tmp:rw,noexec,nosuid,nodev,size={policy.tmpfs_size}"])
+        runtime.extend([policy.image, *_container_command(command)])
+        return runtime
+
+    def _runtime_options(self, workspace: Path, container_name: str) -> list[str]:
+        policy = self.policy
+        return [
             policy.engine,
             "run",
             "--rm",
@@ -297,6 +323,11 @@ class ContainerSandbox:
             policy.memory,
             "--pids-limit",
             str(policy.pids_limit),
+        ]
+
+    def _security_options(self, runtime_user: str) -> list[str]:
+        policy = self.policy
+        return [
             "--ulimit",
             "core=0:0",
             "--ulimit",
@@ -316,17 +347,6 @@ class ContainerSandbox:
             "--env",
             "PYTHONPATH=/workspace",
         ]
-        if policy.read_only_root:
-            runtime.extend(
-                [
-                    "--read-only",
-                    "--tmpfs",
-                    f"/tmp:rw,noexec,nosuid,nodev,size={policy.tmpfs_size}",
-                ]
-            )
-        runtime.append(policy.image)
-        runtime.extend(_container_command(command))
-        return runtime
 
     def _inspect_runtime(self) -> dict:
         if shutil.which(self.policy.engine) is None:
@@ -377,9 +397,10 @@ class ContainerSandbox:
             self._runtime_ready = False
             self._runtime_metadata = self._unavailable_runtime_metadata()
             return False, "container runtime daemon preflight timed out"
-        except Exception as exc:
+        except (OSError, subprocess.SubprocessError) as exc:
             self._runtime_ready = False
             self._runtime_metadata = self._unavailable_runtime_metadata()
+            logger.exception("container runtime preflight failed")
             return False, f"container runtime daemon preflight failed: {exc}"
         server_version = completed.stdout.strip()
         self._runtime_ready = completed.returncode == 0 and bool(server_version)
@@ -416,8 +437,8 @@ class ContainerSandbox:
                 text=True,
                 check=False,
             )
-        except Exception:
-            pass
+        except (OSError, subprocess.SubprocessError):
+            logger.exception("failed to force-remove container %s", container_name)
 
 
 def _container_command(command: list[str]) -> list[str]:
@@ -506,6 +527,7 @@ def _best_effort_output(command: list[str]) -> str:
             text=True,
             check=False,
         )
-    except Exception:
+    except (OSError, subprocess.SubprocessError):
+        logger.debug("best-effort container runtime inspection failed", exc_info=True)
         return ""
     return completed.stdout.strip() if completed.returncode == 0 else ""

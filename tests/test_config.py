@@ -33,7 +33,7 @@ def test_default_config_matches_documented_defaults():
     assert runtime["sandbox_config"]["container"]["output_limit"] == "4m"
     assert runtime["sandbox_config"]["container"]["workspace_write_limit"] == "256m"
     assert runtime["test_commands"] == (("python", "-m", "pytest", "-p", "no:cacheprovider"),)
-    assert runtime["config"]["model"]["name"] == "deepseek-v4-flash"
+    assert runtime["config"]["model"]["name"] == "qwen3.7-plus"
     assert runtime["config"]["model"]["temperature"] == 1.0
     assert build_model_extra_body(runtime["config"]["model"]) == {
         "enable_thinking": True,

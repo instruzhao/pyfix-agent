@@ -1,6 +1,6 @@
 from pathlib import Path
 import argparse
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from datetime import datetime
 import json
 import os
@@ -14,6 +14,7 @@ from pyfixagent.schemas import AgentResult
 from pyfixagent.trace import collect_environment, final_summary
 from pyfixagent.trace_redaction import TRACE_REDACTION_MODES, TraceRedactor
 from pyfixagent.utils.config import load_config
+from pyfixagent.utils.logger import get_logger
 from pyfixagent import __version__
 
 
@@ -54,6 +55,24 @@ DEFAULT_REPOSITORY_MAX_SNIPPET_LINES = 200
 DEFAULT_SANDBOX_BACKEND = "container"
 
 
+logger = get_logger(__name__)
+
+
+@dataclass(frozen=True)
+class RuntimeConfigSections:
+    config_path: Path
+    config: dict
+    paths: dict
+    agent: dict
+    context: dict
+    sandbox: dict
+    safety: dict
+    test: dict
+    review: dict
+    repository: dict
+    trace: dict
+
+
 def load_dotenv_file(path: Path) -> None:
     if not path.exists():
         return
@@ -85,6 +104,19 @@ def save_trace(result: AgentResult, output_dir: Path, redaction_mode: str = "non
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run PyFixAgent on a configured local Python workspace.")
     parser.add_argument("--version", action="version", version=f"PyFixAgent {__version__}")
+    _add_core_arguments(parser)
+    _add_execution_arguments(parser)
+    _add_review_arguments(parser)
+    _add_repository_arguments(parser)
+    parser.add_argument(
+        "--trace-redaction",
+        choices=sorted(TRACE_REDACTION_MODES),
+        help="Trace privacy mode: none, paths, or safe source-content redaction.",
+    )
+    return parser.parse_args(argv)
+
+
+def _add_core_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--config",
         default=DEFAULT_CONFIG_PATH,
@@ -107,6 +139,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=int,
         help="Maximum repair iterations. Overrides agent.max_iterations in config.",
     )
+
+
+def _add_execution_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--allow-dirty",
         action="store_true",
@@ -132,6 +167,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         dest="allowed_paths",
         help="Restrict edits to this workspace-relative path. May be specified more than once.",
     )
+
+
+def _add_review_arguments(parser: argparse.ArgumentParser) -> None:
     review_group = parser.add_mutually_exclusive_group()
     review_group.add_argument(
         "--semantic-review",
@@ -146,6 +184,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         dest="semantic_review",
         help="Use visible pytest success as the final acceptance signal.",
     )
+
+
+def _add_repository_arguments(parser: argparse.ArgumentParser) -> None:
     repository_group = parser.add_mutually_exclusive_group()
     repository_group.add_argument(
         "--repository-context",
@@ -160,147 +201,197 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         dest="repository_context",
         help="Use only the legacy traceback/full context selector.",
     )
-    parser.add_argument(
-        "--trace-redaction",
-        choices=sorted(TRACE_REDACTION_MODES),
-        help="Trace privacy mode: none, paths, or safe source-content redaction.",
-    )
-    return parser.parse_args(argv)
 
 
 def resolve_runtime_config(project_root: Path, args: argparse.Namespace) -> dict:
+    sections = _load_runtime_sections(project_root, args)
+    runtime = {"config_path": sections.config_path, "config": sections.config}
+    runtime.update(_resolve_paths(project_root, args, sections.paths))
+    runtime.update(_resolve_agent_runtime(args, sections.agent))
+    runtime.update(_resolve_context_runtime(args, sections.context))
+    runtime.update(_resolve_safety_runtime(args, sections.safety))
+    runtime.update(_resolve_sandbox_runtime(args, sections.sandbox, runtime["isolate_workspace"]))
+    runtime.update(_resolve_test_runtime(sections.test))
+    runtime.update(_resolve_review_runtime(args, sections.review))
+    runtime.update(_resolve_repository_runtime(project_root, args, sections.repository))
+    runtime.update(_resolve_trace_runtime(args, sections.trace))
+    return runtime
+
+
+def _load_runtime_sections(project_root: Path, args: argparse.Namespace) -> RuntimeConfigSections:
     config_path = _resolve_path(project_root, args.config)
     config = load_config(config_path)
-    paths_config = config.get("paths", {})
-    agent_config = config.get("agent", {})
-    context_config = config.get("context", {})
-    sandbox_config = config.get("sandbox", {})
-    safety_config = config.get("safety", {})
-    test_config = config.get("test", {})
-    review_config = config.get("semantic_review", {})
-    repository_config = config.get("repository", {})
-    trace_config = config.get("trace", {})
-
-    workspace = _resolve_path(project_root, args.workspace or paths_config.get("workspace", DEFAULT_WORKSPACE))
-    sandbox_backend = str(
-        getattr(args, "sandbox_backend", None)
-        or sandbox_config.get("backend", DEFAULT_SANDBOX_BACKEND)
-    ).strip().lower()
-    if sandbox_backend not in SANDBOX_BACKENDS:
-        raise ValueError(f"sandbox backend must be one of: {', '.join(sorted(SANDBOX_BACKENDS))}")
-    isolate_workspace = (
-        False
-        if getattr(args, "in_place", False)
-        else _as_bool(safety_config.get("isolate_workspace", DEFAULT_ISOLATE_WORKSPACE))
+    return RuntimeConfigSections(
+        config_path=config_path,
+        config=config,
+        paths=config.get("paths", {}),
+        agent=config.get("agent", {}),
+        context=config.get("context", {}),
+        sandbox=config.get("sandbox", {}),
+        safety=config.get("safety", {}),
+        test=config.get("test", {}),
+        review=config.get("semantic_review", {}),
+        repository=config.get("repository", {}),
+        trace=config.get("trace", {}),
     )
-    if sandbox_backend == "container" and not isolate_workspace:
-        raise ValueError("container sandbox cannot be combined with --in-place")
+
+
+def _resolve_paths(project_root: Path, args: argparse.Namespace, paths: dict) -> dict:
+    workspace = _resolve_path(project_root, args.workspace or paths.get("workspace", DEFAULT_WORKSPACE))
     return {
-        "config_path": config_path,
-        "config": config,
         "workspace": workspace,
         "patch_output_dir": _resolve_path(
-            project_root,
-            paths_config.get("patch_output_dir", DEFAULT_PATCH_OUTPUT_DIR),
+            project_root, paths.get("patch_output_dir", DEFAULT_PATCH_OUTPUT_DIR)
         ),
         "trace_output_dir": _resolve_path(
-            project_root,
-            paths_config.get("trace_output_dir", DEFAULT_TRACE_OUTPUT_DIR),
+            project_root, paths.get("trace_output_dir", DEFAULT_TRACE_OUTPUT_DIR)
         ),
-        "task": args.task or agent_config.get("task", DEFAULT_TASK),
-        "initial_mode": args.mode or agent_config.get("initial_mode", DEFAULT_INITIAL_MODE),
+    }
+
+
+def _resolve_agent_runtime(args: argparse.Namespace, agent: dict) -> dict:
+    return {
+        "task": args.task or agent.get("task", DEFAULT_TASK),
+        "initial_mode": args.mode or agent.get("initial_mode", DEFAULT_INITIAL_MODE),
         "max_iterations": int(
             args.max_iterations
             if args.max_iterations is not None
-            else agent_config.get("max_iterations", DEFAULT_MAX_ITERATIONS)
+            else agent.get("max_iterations", DEFAULT_MAX_ITERATIONS)
         ),
-        "context_strategy": args.context_strategy or context_config.get("strategy", DEFAULT_CONTEXT_STRATEGY),
-        "context_line_window": int(context_config.get("line_window", DEFAULT_CONTEXT_LINE_WINDOW)),
-        "context_max_files": int(context_config.get("max_files", DEFAULT_CONTEXT_MAX_FILES)),
+    }
+
+
+def _resolve_context_runtime(args: argparse.Namespace, context: dict) -> dict:
+    return {
+        "context_strategy": getattr(args, "context_strategy", None)
+        or context.get("strategy", DEFAULT_CONTEXT_STRATEGY),
+        "context_line_window": int(context.get("line_window", DEFAULT_CONTEXT_LINE_WINDOW)),
+        "context_max_files": int(context.get("max_files", DEFAULT_CONTEXT_MAX_FILES)),
         "context_max_selected_tokens": int(
-            context_config.get("max_selected_tokens", DEFAULT_CONTEXT_MAX_SELECTED_TOKENS)
+            context.get("max_selected_tokens", DEFAULT_CONTEXT_MAX_SELECTED_TOKENS)
         ),
         "context_max_expansion_level": int(
-            context_config.get("max_expansion_level", DEFAULT_CONTEXT_MAX_EXPANSION_LEVEL)
+            context.get("max_expansion_level", DEFAULT_CONTEXT_MAX_EXPANSION_LEVEL)
         ),
         "context_fallback_to_full": _as_bool(
-            context_config.get("fallback_to_full_context", DEFAULT_CONTEXT_FALLBACK_TO_FULL)
+            context.get("fallback_to_full_context", DEFAULT_CONTEXT_FALLBACK_TO_FULL)
         ),
-        "context_include_tests": _as_bool(context_config.get("include_tests", DEFAULT_CONTEXT_INCLUDE_TESTS)),
-        "sandbox_timeout": int(sandbox_config.get("timeout_seconds", 30)),
-        "sandbox_backend": sandbox_backend,
-        "container_image": getattr(args, "container_image", None),
-        "sandbox_config": sandbox_config,
+        "context_include_tests": _as_bool(
+            context.get("include_tests", DEFAULT_CONTEXT_INCLUDE_TESTS)
+        ),
+    }
+
+
+def _resolve_safety_runtime(args: argparse.Namespace, safety: dict) -> dict:
+    isolate_workspace = (
+        False
+        if getattr(args, "in_place", False)
+        else _as_bool(safety.get("isolate_workspace", DEFAULT_ISOLATE_WORKSPACE))
+    )
+    return {
         "require_clean_workspace": (
             False
             if getattr(args, "allow_dirty", False)
-            else _as_bool(safety_config.get("require_clean_workspace", DEFAULT_REQUIRE_CLEAN_WORKSPACE))
+            else _as_bool(safety.get("require_clean_workspace", DEFAULT_REQUIRE_CLEAN_WORKSPACE))
         ),
-        "allowed_paths": (
-            list(getattr(args, "allowed_paths", None) or safety_config.get("allowed_paths", []) or [])
-        ),
-        "max_changed_files": int(safety_config.get("max_changed_files", DEFAULT_MAX_CHANGED_FILES)),
-        "max_changed_lines": int(safety_config.get("max_changed_lines", DEFAULT_MAX_CHANGED_LINES)),
+        "allowed_paths": list(getattr(args, "allowed_paths", None) or safety.get("allowed_paths", []) or []),
+        "max_changed_files": int(safety.get("max_changed_files", DEFAULT_MAX_CHANGED_FILES)),
+        "max_changed_lines": int(safety.get("max_changed_lines", DEFAULT_MAX_CHANGED_LINES)),
         "isolate_workspace": isolate_workspace,
-        "test_commands": normalize_test_commands(test_config.get("commands")),
+    }
+
+
+def _resolve_sandbox_runtime(args: argparse.Namespace, sandbox: dict, isolate_workspace: bool) -> dict:
+    sandbox_backend = str(
+        getattr(args, "sandbox_backend", None)
+        or sandbox.get("backend", DEFAULT_SANDBOX_BACKEND)
+    ).strip().lower()
+    if sandbox_backend not in SANDBOX_BACKENDS:
+        raise ValueError(f"sandbox backend must be one of: {', '.join(sorted(SANDBOX_BACKENDS))}")
+    if sandbox_backend == "container" and not isolate_workspace:
+        raise ValueError("container sandbox cannot be combined with --in-place")
+    return {
+        "sandbox_backend": sandbox_backend,
+        "container_image": getattr(args, "container_image", None),
+        "sandbox_timeout": int(sandbox.get("timeout_seconds", 30)),
+        "sandbox_config": sandbox,
+    }
+
+
+def _resolve_test_runtime(test: dict) -> dict:
+    return {"test_commands": normalize_test_commands(test.get("commands"))}
+
+
+def _resolve_review_runtime(args: argparse.Namespace, review: dict) -> dict:
+    return {
         "semantic_review_enabled": (
             bool(args.semantic_review)
             if getattr(args, "semantic_review", None) is not None
-            else _as_bool(review_config.get("enabled", DEFAULT_SEMANTIC_REVIEW_ENABLED))
+            else _as_bool(review.get("enabled", DEFAULT_SEMANTIC_REVIEW_ENABLED))
         ),
         "semantic_review_max_revisions": int(
-            review_config.get("max_semantic_revisions", DEFAULT_SEMANTIC_REVIEW_MAX_REVISIONS)
+            review.get("max_semantic_revisions", DEFAULT_SEMANTIC_REVIEW_MAX_REVISIONS)
         ),
         "semantic_review_parse_retries": int(
-            review_config.get("max_parse_retries", DEFAULT_SEMANTIC_REVIEW_PARSE_RETRIES)
+            review.get("max_parse_retries", DEFAULT_SEMANTIC_REVIEW_PARSE_RETRIES)
         ),
         "semantic_review_max_context_chars": int(
-            review_config.get("max_context_chars", DEFAULT_SEMANTIC_REVIEW_MAX_CONTEXT_CHARS)
+            review.get("max_context_chars", DEFAULT_SEMANTIC_REVIEW_MAX_CONTEXT_CHARS)
         ),
         "semantic_review_max_feedback_chars": int(
-            review_config.get("max_feedback_chars", DEFAULT_SEMANTIC_REVIEW_MAX_FEEDBACK_CHARS)
+            review.get("max_feedback_chars", DEFAULT_SEMANTIC_REVIEW_MAX_FEEDBACK_CHARS)
         ),
         "semantic_review_max_risks": int(
-            review_config.get("max_risks", DEFAULT_SEMANTIC_REVIEW_MAX_RISKS)
+            review.get("max_risks", DEFAULT_SEMANTIC_REVIEW_MAX_RISKS)
         ),
         "semantic_review_max_contracts": int(
-            review_config.get("max_contracts", DEFAULT_SEMANTIC_REVIEW_MAX_CONTRACTS)
+            review.get("max_contracts", DEFAULT_SEMANTIC_REVIEW_MAX_CONTRACTS)
         ),
         "semantic_review_max_output_tokens": int(
-            review_config.get("max_output_tokens", DEFAULT_SEMANTIC_REVIEW_MAX_OUTPUT_TOKENS)
+            review.get("max_output_tokens", DEFAULT_SEMANTIC_REVIEW_MAX_OUTPUT_TOKENS)
         ),
         "semantic_review_thinking_budget": (
-            int(review_config["thinking_budget"])
-            if review_config.get("thinking_budget") is not None
+            int(review["thinking_budget"])
+            if review.get("thinking_budget") is not None
             else None
         ),
+    }
+
+
+def _resolve_repository_runtime(project_root: Path, args: argparse.Namespace, repository: dict) -> dict:
+    return {
         "repository_context_enabled": (
             bool(args.repository_context)
             if getattr(args, "repository_context", None) is not None
-            else _as_bool(repository_config.get("enabled", DEFAULT_REPOSITORY_CONTEXT_ENABLED))
+            else _as_bool(repository.get("enabled", DEFAULT_REPOSITORY_CONTEXT_ENABLED))
         ),
         "repository_cache_dir": _resolve_path(
             project_root,
-            repository_config.get("cache_dir", DEFAULT_REPOSITORY_CACHE_DIR),
+            repository.get("cache_dir", DEFAULT_REPOSITORY_CACHE_DIR),
         ),
         "repository_max_files": int(
-            repository_config.get("max_files", DEFAULT_REPOSITORY_MAX_FILES)
+            repository.get("max_files", DEFAULT_REPOSITORY_MAX_FILES)
         ),
         "repository_max_file_bytes": int(
-            repository_config.get("max_file_bytes", DEFAULT_REPOSITORY_MAX_FILE_BYTES)
+            repository.get("max_file_bytes", DEFAULT_REPOSITORY_MAX_FILE_BYTES)
         ),
         "repository_max_graph_depth": int(
-            repository_config.get("max_graph_depth", DEFAULT_REPOSITORY_MAX_GRAPH_DEPTH)
+            repository.get("max_graph_depth", DEFAULT_REPOSITORY_MAX_GRAPH_DEPTH)
         ),
         "repository_max_related_files": int(
-            repository_config.get("max_related_files", DEFAULT_REPOSITORY_MAX_RELATED_FILES)
+            repository.get("max_related_files", DEFAULT_REPOSITORY_MAX_RELATED_FILES)
         ),
         "repository_max_snippet_lines": int(
-            repository_config.get("max_snippet_lines", DEFAULT_REPOSITORY_MAX_SNIPPET_LINES)
+            repository.get("max_snippet_lines", DEFAULT_REPOSITORY_MAX_SNIPPET_LINES)
         ),
+    }
+
+
+def _resolve_trace_runtime(args: argparse.Namespace, trace: dict) -> dict:
+    return {
         "trace_redaction_mode": (
             getattr(args, "trace_redaction", None)
-            or str(trace_config.get("redaction_mode", DEFAULT_TRACE_REDACTION_MODE)).strip().lower()
+            or str(trace.get("redaction_mode", DEFAULT_TRACE_REDACTION_MODE)).strip().lower()
         ),
     }
 
@@ -347,45 +438,50 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     load_dotenv_file(project_root / ".env")
     runtime = resolve_runtime_config(project_root, args)
-    config = runtime["config"]
+    model, review_model = _build_models(runtime["config"])
+    agent = _build_agent(runtime, model, review_model)
+    result = agent.run(runtime["task"])
+    trace_path = save_trace(
+        result,
+        runtime["trace_output_dir"],
+        redaction_mode=runtime["trace_redaction_mode"],
+    )
+    logger.info("agent trace saved to %s", trace_path)
+    pprint(result)
+    return _result_exit_code(result)
 
+
+def _build_models(config: dict) -> tuple[LiteLLMModel, LiteLLMModel]:
     model_config = config.get("model", {})
-    review_config = config.get("semantic_review", {})
-    litellm_model_name = build_litellm_model_name(model_config)
+    review_model_config = build_review_model_config(model_config, config.get("semantic_review", {}))
+    return (
+        _build_model(model_config, default_max_tokens=2000),
+        _build_model(review_model_config, default_max_tokens=DEFAULT_SEMANTIC_REVIEW_MAX_OUTPUT_TOKENS),
+    )
 
+
+def _build_model(model_config: dict, *, default_max_tokens: int) -> LiteLLMModel:
     api_key_env = model_config.get("api_key_env")
-    api_key = os.getenv(api_key_env) if api_key_env else None
-    model = LiteLLMModel(
-        model_name=litellm_model_name,
+    return LiteLLMModel(
+        model_name=build_litellm_model_name(model_config),
         api_base=model_config.get("api_base"),
-        api_key=api_key,
+        api_key=os.getenv(api_key_env) if api_key_env else None,
         temperature=float(model_config.get("temperature", 0.0)),
-        max_tokens=int(model_config.get("max_tokens", 2000)),
+        max_tokens=int(model_config.get("max_tokens", default_max_tokens)),
         timeout_seconds=int(model_config.get("timeout_seconds", 60)),
         extra_body=build_model_extra_body(model_config),
         system_prompt_as_user=build_system_prompt_as_user(model_config),
     )
-    review_model_config = build_review_model_config(model_config, review_config)
-    review_api_key_env = review_model_config.get("api_key_env")
-    review_model = LiteLLMModel(
-        model_name=build_litellm_model_name(review_model_config),
-        api_base=review_model_config.get("api_base"),
-        api_key=os.getenv(review_api_key_env) if review_api_key_env else None,
-        temperature=float(review_model_config.get("temperature", 0.0)),
-        max_tokens=int(review_model_config.get("max_tokens", DEFAULT_SEMANTIC_REVIEW_MAX_OUTPUT_TOKENS)),
-        timeout_seconds=int(review_model_config.get("timeout_seconds", 60)),
-        extra_body=build_model_extra_body(review_model_config),
-        system_prompt_as_user=build_system_prompt_as_user(review_model_config),
-    )
 
+
+def _build_agent(runtime: dict, model: LiteLLMModel, review_model: LiteLLMModel) -> DefaultAgent:
     sandbox = build_sandbox(
         runtime["workspace"],
         runtime["sandbox_config"],
         backend_override=runtime["sandbox_backend"],
         container_image_override=runtime["container_image"],
     )
-
-    agent = DefaultAgent(
+    return DefaultAgent(
         model=model,
         sandbox=sandbox,
         patch_output_dir=runtime["patch_output_dir"],
@@ -420,14 +516,9 @@ def main(argv: list[str] | None = None) -> int:
         repository_max_snippet_lines=runtime["repository_max_snippet_lines"],
         context_max_selected_tokens=runtime["context_max_selected_tokens"],
     )
-    result = agent.run(runtime["task"])
-    trace_path = save_trace(
-        result,
-        runtime["trace_output_dir"],
-        redaction_mode=runtime["trace_redaction_mode"],
-    )
-    print(f"[agent] trace saved to {trace_path}")
-    pprint(result)
+
+
+def _result_exit_code(result) -> int:
     if result.success:
         return 0
     if getattr(result, "visible_success", False) and getattr(

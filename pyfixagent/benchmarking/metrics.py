@@ -3,6 +3,16 @@ import math
 
 
 def summarize_runs(runs: list[dict]) -> dict:
+    summary = _outcome_summary(runs)
+    summary.update(_execution_summary(runs))
+    summary.update(_model_summary(runs))
+    summary.update(_repository_summary(runs))
+    summary.update(_context_summary(runs))
+    summary.update(_ab_summary(runs))
+    return summary
+
+
+def _outcome_summary(runs: list[dict]) -> dict:
     total = len(runs)
     successes = sum(bool(run.get("success")) for run in runs)
     visible_successes = sum(bool(run.get("visible_success")) for run in runs)
@@ -23,20 +33,6 @@ def summarize_runs(runs: list[dict]) -> dict:
         for key in case_keys
     )
     first_runs = [run for run in runs if int(run.get("repetition", 1)) == 1]
-    failure_counts = Counter(
-        str(run.get("failure_type") or "unknown") for run in runs if not run.get("success")
-    )
-    iteration_results = [
-        failure_type
-        for run in runs
-        for failure_type in (run.get("iteration_failure_types") or [])
-    ]
-    repository_runs = [run for run in runs if run.get("repository_context_enabled") is True]
-    legacy_runs = [run for run in runs if run.get("repository_context_enabled") is False]
-    context_recall_values = _numeric_values(runs, "context_required_recall")
-    context_precision_values = _numeric_values(runs, "context_precision")
-    distractor_rate_values = _numeric_values(runs, "context_distractor_rate")
-    ab = _ab_summary(runs)
     success_at_one_count = sum(bool(run.get("success")) for run in first_runs)
     return {
         "runs": total,
@@ -55,6 +51,20 @@ def summarize_runs(runs: list[dict]) -> dict:
         "pass_at_k": rate(passed_cases, len(case_keys)),
         "success_at_1": rate(success_at_one_count, len(first_runs)),
         "success_at_1_95ci": wilson_interval(success_at_one_count, len(first_runs)),
+    }
+
+
+def _execution_summary(runs: list[dict]) -> dict:
+    total = len(runs)
+    iteration_results = [
+        failure_type
+        for run in runs
+        for failure_type in (run.get("iteration_failure_types") or [])
+    ]
+    failure_counts = Counter(
+        str(run.get("failure_type") or "unknown") for run in runs if not run.get("success")
+    )
+    return {
         "average_iterations": round(
             sum(int(run.get("iterations", 0)) for run in runs) / total, 3
         ) if total else 0.0,
@@ -62,6 +72,16 @@ def summarize_runs(runs: list[dict]) -> dict:
         "no_progress_rate": rate(iteration_results.count("no_progress"), len(iteration_results)),
         "failure_counts": dict(sorted(failure_counts.items())),
         "policy_violation_count": sum(int(run.get("policy_violation_count", 0)) for run in runs),
+        "average_duration_seconds": round(
+            sum(float(run.get("duration_seconds", 0.0)) for run in runs) / total, 3
+        ) if total else 0.0,
+        "false_accept_count": sum(run.get("failure_type") == "false_accept" for run in runs),
+        "false_reject_count": sum(run.get("failure_type") == "false_reject" for run in runs),
+    }
+
+
+def _model_summary(runs: list[dict]) -> dict:
+    return {
         "total_prompt_chars": sum(int(run.get("prompt_chars", 0)) for run in runs),
         "total_input_tokens": sum(int(run.get("input_tokens", 0)) for run in runs),
         "total_output_tokens": sum(int(run.get("output_tokens", 0)) for run in runs),
@@ -75,30 +95,20 @@ def summarize_runs(runs: list[dict]) -> dict:
         "review_model_seconds": round(
             sum(float(run.get("review_model_seconds", 0.0)) for run in runs), 3
         ),
-        "average_duration_seconds": round(
-            sum(float(run.get("duration_seconds", 0.0)) for run in runs) / total, 3
-        ) if total else 0.0,
         "review_count": sum(int(run.get("review_count", 0)) for run in runs),
-        "semantic_revision_count": sum(
-            int(run.get("semantic_revisions_used", 0)) for run in runs
-        ),
-        "false_accept_count": sum(run.get("failure_type") == "false_accept" for run in runs),
-        "false_reject_count": sum(run.get("failure_type") == "false_reject" for run in runs),
+        "semantic_revision_count": sum(int(run.get("semantic_revisions_used", 0)) for run in runs),
+    }
+
+
+def _repository_summary(runs: list[dict]) -> dict:
+    repository_runs = [run for run in runs if run.get("repository_context_enabled") is True]
+    legacy_runs = [run for run in runs if run.get("repository_context_enabled") is False]
+    return {
         "repository_run_count": len(repository_runs),
-        "repository_success_rate": (
-            rate(sum(bool(run.get("success")) for run in repository_runs), len(repository_runs))
-            if repository_runs
-            else None
-        ),
+        "repository_success_rate": _variant_success_rate(repository_runs),
         "legacy_run_count": len(legacy_runs),
-        "legacy_success_rate": (
-            rate(sum(bool(run.get("success")) for run in legacy_runs), len(legacy_runs))
-            if legacy_runs
-            else None
-        ),
-        "repository_context_builds": sum(
-            int(run.get("repository_context_builds", 0)) for run in runs
-        ),
+        "legacy_success_rate": _variant_success_rate(legacy_runs),
+        "repository_context_builds": sum(int(run.get("repository_context_builds", 0)) for run in runs),
         "repository_cache_hits": sum(int(run.get("repository_cache_hits", 0)) for run in runs),
         "repository_index_seconds": round(
             sum(float(run.get("repository_index_seconds", 0.0)) for run in runs), 3
@@ -113,13 +123,20 @@ def summarize_runs(runs: list[dict]) -> dict:
             int(run.get("repository_related_file_count", 0)) for run in runs
         ),
         "repository_max_estimated_tokens": max(
-            (int(run.get("repository_max_estimated_tokens", 0)) for run in runs),
-            default=0,
+            (int(run.get("repository_max_estimated_tokens", 0)) for run in runs), default=0
         ),
-        "average_context_required_recall": _average(context_recall_values),
-        "average_context_precision": _average(context_precision_values),
-        "average_context_distractor_rate": _average(distractor_rate_values),
-        **ab,
+    }
+
+
+def _variant_success_rate(runs: list[dict]) -> float | None:
+    return rate(sum(bool(run.get("success")) for run in runs), len(runs)) if runs else None
+
+
+def _context_summary(runs: list[dict]) -> dict:
+    return {
+        "average_context_required_recall": _average(_numeric_values(runs, "context_required_recall")),
+        "average_context_precision": _average(_numeric_values(runs, "context_precision")),
+        "average_context_distractor_rate": _average(_numeric_values(runs, "context_distractor_rate")),
     }
 
 

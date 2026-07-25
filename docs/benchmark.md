@@ -2,7 +2,7 @@
 
 ## Current benchmark runner
 
-The historical two-workspace observations below were produced for v0.2.2. The current v0.7.2 runner reads cases from `benchmarks/cases.yaml` and is invoked through `pyfixagent-benchmark`.
+The historical two-workspace observations below were produced for v0.2.2. The current local v0.7.3 source reads 27 curated cases from `benchmarks/cases.yaml` and is invoked through `pyfixagent-benchmark`.
 
     pyfixagent-benchmark --list
     pyfixagent-benchmark --case demo_project --strategy traceback --repeat 3
@@ -44,7 +44,7 @@ The v0.5.1 `qwen3.6-max-preview` four-repetition release report is available at 
 
 The v0.6.2 final-code qualification report is available at `docs/results/v0.6.2-qwen3.6-max-preview.md`. It records 19 completed final successes, including all nine new multi-module cases; five existing cases remained incomplete after provider quota exhaustion.
 
-v0.7.2 adds protocol fingerprints, Wilson intervals, and fail-closed matched-report comparison. Its runner qualification is recorded in `docs/v0.7.2.md` and `docs/results/v0.7.2-runner-qualification.md`; it measures runner behavior and does not make a new repair-rate claim.
+The existing v0.7.2 benchmark schema adds protocol fingerprints, Wilson intervals, and fail-closed matched-report comparison. Its runner qualification is recorded in `docs/v0.7.2.md` and `docs/results/v0.7.2-runner-qualification.md`; it measures runner behavior and does not make a new repair-rate claim.
 
 ## v0.6.2 Repository-context A/B Protocol
 

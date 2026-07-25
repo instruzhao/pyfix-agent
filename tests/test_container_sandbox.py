@@ -89,12 +89,14 @@ def test_container_sandbox_uses_selected_podman_runtime(monkeypatch, tmp_path):
     monkeypatch.setattr(container_module.subprocess, "run", fake_run)
     monkeypatch.setattr(container_module, "run_bounded_process", fake_bounded)
 
-    result = ContainerSandbox(
-        tmp_path, policy=ContainerPolicy(engine="podman", user="65534:65534")
-    ).run(["python", "-c", "print('ok')"])
+    result = ContainerSandbox(tmp_path, policy=ContainerPolicy(engine="podman")).run(
+        ["python", "-c", "print('ok')"]
+    )
 
     assert result.exit_code == 0
     assert calls[0][:2] == ["podman", "run"]
+    assert "--userns" in calls[0]
+    assert calls[0][calls[0].index("--userns") + 1] == "keep-id"
 
 
 def test_container_timeout_forces_named_container_cleanup(monkeypatch, tmp_path):

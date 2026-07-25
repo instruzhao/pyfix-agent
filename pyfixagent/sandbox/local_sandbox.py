@@ -6,6 +6,10 @@ import time
 
 from pyfixagent.sandbox.base import CommandResult
 from pyfixagent.sandbox.policy import is_command_allowed
+from pyfixagent.utils.logger import get_logger
+
+
+logger = get_logger(__name__)
 
 
 class LocalSandbox:
@@ -83,7 +87,8 @@ class LocalSandbox:
                 backend=self.backend,
                 runtime_command=list(command),
             )
-        except Exception as exc:
+        except (OSError, subprocess.SubprocessError) as exc:
+            logger.exception("local sandbox command failed to start")
             return CommandResult(
                 command=command,
                 exit_code=1,

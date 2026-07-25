@@ -16,7 +16,7 @@ class ReplacementBackend:
     def apply(self, workspace: Path, raw_output: str, patch_path: Path) -> ApplyResult:
         try:
             edits = parse_replacements(raw_output)
-        except Exception as exc:
+        except ValueError as exc:
             error = str(exc)
             return ApplyResult(
                 mode="replacement",

@@ -2,6 +2,10 @@ import time
 
 from pyfixagent.models.base import BaseModel
 from pyfixagent.trace import model_call_metadata
+from pyfixagent.utils.logger import get_logger
+
+
+logger = get_logger(__name__)
 
 
 class ModelGenerationError(RuntimeError):
@@ -22,6 +26,7 @@ class ModelClient:
             output = self.model.generate_patch(system_prompt, user_prompt)
         except Exception as exc:
             duration = time.perf_counter() - started
+            logger.exception("model generation failed for %s", self.model.__class__.__name__)
             raise ModelGenerationError(exc, model_call_metadata(self.model, duration)) from exc
         return output, model_call_metadata(self.model, time.perf_counter() - started)
 

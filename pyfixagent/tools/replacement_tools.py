@@ -89,7 +89,7 @@ def apply_replacements(
         if target not in originals:
             try:
                 originals[target] = target.read_text(encoding="utf-8")
-            except Exception as exc:
+            except (OSError, UnicodeError) as exc:
                 return ReplacementResult(
                     success=False,
                     changed_files=[],
@@ -130,7 +130,7 @@ def apply_replacements(
         for target, content in planned_changes.items():
             target.write_text(content, encoding="utf-8", newline="\n")
             _remove_python_bytecode_cache(target)
-    except Exception as exc:
+    except OSError as exc:
         return ReplacementResult(success=False, changed_files=[], error=f"failed to write replacements: {exc}")
 
     return ReplacementResult(success=True, changed_files=changed_files)

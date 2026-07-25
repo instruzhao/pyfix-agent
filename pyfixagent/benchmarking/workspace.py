@@ -11,6 +11,10 @@ from typing import Callable
 from pyfixagent.benchmarking.contracts import BenchmarkCase
 from pyfixagent.sandbox.base import Sandbox
 from pyfixagent.sandbox.local_sandbox import LocalSandbox
+from pyfixagent.utils.logger import get_logger
+
+
+logger = get_logger(__name__)
 
 
 class IsolatedWorkspaceFactory:
@@ -54,7 +58,8 @@ class IsolatedWorkspaceFactory:
             self._run_checked(["git", "config", "user.name", "PyFixAgent Benchmark"], workspace)
             self._run_checked(["git", "add", "."], workspace)
             self._run_checked(["git", "commit", "-m", "benchmark: failing baseline"], workspace)
-        except Exception:
+        except (OSError, RuntimeError, shutil.Error, subprocess.SubprocessError):
+            logger.exception("failed to create benchmark workspace for %s", case.case_id)
             self._safe_remove(workspace)
             raise
         return workspace
@@ -66,7 +71,8 @@ class IsolatedWorkspaceFactory:
             else:
                 self._run_reset(case)
             return None
-        except Exception as exc:
+        except (OSError, RuntimeError, shutil.Error, subprocess.SubprocessError) as exc:
+            logger.exception("failed to clean benchmark workspace for %s", case.case_id)
             return str(exc)
 
     def _run_reset(self, case: BenchmarkCase) -> None:

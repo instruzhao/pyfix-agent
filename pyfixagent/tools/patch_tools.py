@@ -4,6 +4,10 @@ from pathlib import Path
 import subprocess
 
 from pyfixagent.tools.edit_policy import EditPolicy, changed_lines_from_patch, paths_from_patch
+from pyfixagent.utils.logger import get_logger
+
+
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -160,7 +164,8 @@ def save_patch(workspace: Path, patch_text: str, output_path: Path) -> Path:
         cleaned = clean_patch_text(patch_text)
         output_path.write_text(cleaned, encoding="utf-8", newline="\n")
         return output_path
-    except Exception as exc:
+    except (OSError, UnicodeError, ValueError) as exc:
+        logger.exception("failed to save patch to %s", output_path)
         raise RuntimeError(f"failed to save patch to {output_path}: {exc}") from exc
 
 
@@ -191,7 +196,8 @@ def check_patch(
         )
     except subprocess.TimeoutExpired as exc:
         return PatchApplyResult(success=False, error=f"git apply --check timed out after {timeout}s: {exc}")
-    except Exception as exc:
+    except (OSError, UnicodeError, ValueError, subprocess.SubprocessError) as exc:
+        logger.exception("failed to check patch")
         return PatchApplyResult(success=False, error=f"failed to check patch: {exc}")
 
 
@@ -221,7 +227,8 @@ def apply_patch(
         )
     except subprocess.TimeoutExpired as exc:
         return PatchApplyResult(success=False, error=f"git apply timed out after {timeout}s: {exc}")
-    except Exception as exc:
+    except (OSError, UnicodeError, ValueError, subprocess.SubprocessError) as exc:
+        logger.exception("failed to apply patch")
         return PatchApplyResult(success=False, error=f"failed to apply patch: {exc}")
 
 
@@ -246,7 +253,8 @@ def get_git_diff(workspace: Path, timeout: int = 30) -> PatchApplyResult:
         )
     except subprocess.TimeoutExpired as exc:
         return PatchApplyResult(success=False, error=f"GIT_DIFF_FAILED: git diff timed out after {timeout}s: {exc}")
-    except Exception as exc:
+    except (OSError, UnicodeError, subprocess.SubprocessError) as exc:
+        logger.exception("failed to run git diff")
         return PatchApplyResult(success=False, error=f"GIT_DIFF_FAILED: failed to run git diff: {exc}")
 
 

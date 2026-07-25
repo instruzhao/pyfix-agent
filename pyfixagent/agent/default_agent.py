@@ -4,7 +4,7 @@ from pyfixagent.context.provider import ContextProvider
 from pyfixagent.context.policy import ContextExpansionPolicy
 from pyfixagent.context.repository import RepositoryContextExpander
 from pyfixagent.core.contracts import RepairRequest
-from pyfixagent.core.engine import RepairEngine
+from pyfixagent.core.engine import EngineServices, RepairEngine
 from pyfixagent.execution.test_runner import TestRunner
 from pyfixagent.execution.test_policy import normalize_test_commands
 from pyfixagent.execution.workspace_session import WorkspaceSession
@@ -127,47 +127,49 @@ class DefaultAgent:
         review_model_client = ModelClient(self.review_model or self.model)
         repository_expander = self._build_repository_expander()
         return RepairEngine(
-            workspace_session=WorkspaceSession(
-                self.sandbox.workspace,
-                self.patch_output_dir,
-                require_clean=self.require_clean_workspace,
-                isolate=self.isolate_workspace,
-            ),
-            test_runner=TestRunner(self.sandbox, commands=self.test_commands),
-            context_provider=ContextProvider(
-                strategy=self.context_strategy,
-                line_window=self.context_line_window,
-                max_files=self.context_max_files,
-                fallback_to_full=self.context_fallback_to_full,
-                include_tests=self.context_include_tests,
-                repository_expander=repository_expander,
-            ),
-            context_policy=ContextExpansionPolicy(self.context_max_expansion_level),
-            prompt_builder=PromptBuilder(),
-            model_client=model_client,
-            backends={
-                "patch": PatchBackend(self.edit_policy),
-                "replacement": ReplacementBackend(self.edit_policy),
-            },
-            evaluator=AttemptEvaluator(),
-            retry_policy=RetryPolicy(self.initial_mode),
-            semantic_review_enabled=self.semantic_review_enabled,
-            review_context_provider=ReviewContextProvider(
-                max_chars=self.semantic_review_max_context_chars,
-                include_tests=self.context_include_tests,
-                repository_expander=repository_expander,
-            ),
-            semantic_reviewer=SemanticReviewer(
-                review_model_client,
-                ReviewParser(
-                    max_risks=self.semantic_review_max_risks,
-                    max_text_chars=self.semantic_review_max_feedback_chars,
-                    max_contracts=self.semantic_review_max_contracts,
+            EngineServices(
+                workspace_session=WorkspaceSession(
+                    self.sandbox.workspace,
+                    self.patch_output_dir,
+                    require_clean=self.require_clean_workspace,
+                    isolate=self.isolate_workspace,
                 ),
-                max_parse_retries=self.semantic_review_parse_retries,
-            ),
-            review_policy=ReviewPolicy(self.semantic_review_max_revisions),
-            review_max_feedback_chars=self.semantic_review_max_feedback_chars,
+                test_runner=TestRunner(self.sandbox, commands=self.test_commands),
+                context_provider=ContextProvider(
+                    strategy=self.context_strategy,
+                    line_window=self.context_line_window,
+                    max_files=self.context_max_files,
+                    fallback_to_full=self.context_fallback_to_full,
+                    include_tests=self.context_include_tests,
+                    repository_expander=repository_expander,
+                ),
+                context_policy=ContextExpansionPolicy(self.context_max_expansion_level),
+                prompt_builder=PromptBuilder(),
+                model_client=model_client,
+                backends={
+                    "patch": PatchBackend(self.edit_policy),
+                    "replacement": ReplacementBackend(self.edit_policy),
+                },
+                evaluator=AttemptEvaluator(),
+                retry_policy=RetryPolicy(self.initial_mode),
+                semantic_review_enabled=self.semantic_review_enabled,
+                review_context_provider=ReviewContextProvider(
+                    max_chars=self.semantic_review_max_context_chars,
+                    include_tests=self.context_include_tests,
+                    repository_expander=repository_expander,
+                ),
+                semantic_reviewer=SemanticReviewer(
+                    review_model_client,
+                    ReviewParser(
+                        max_risks=self.semantic_review_max_risks,
+                        max_text_chars=self.semantic_review_max_feedback_chars,
+                        max_contracts=self.semantic_review_max_contracts,
+                    ),
+                    max_parse_retries=self.semantic_review_parse_retries,
+                ),
+                review_policy=ReviewPolicy(self.semantic_review_max_revisions),
+                review_max_feedback_chars=self.semantic_review_max_feedback_chars,
+            )
         )
 
     def _build_repository_expander(self) -> RepositoryContextExpander | None:

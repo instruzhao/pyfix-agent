@@ -63,6 +63,9 @@ jobs:
       - name: Validate benchmark protocol
         run: pyfixagent-benchmark --validate
 
+      - name: Validate runner profile locks
+        run: python scripts/validate_runner_locks.py
+
   container:
     runs-on: ubuntu-latest
     timeout-minutes: 15
