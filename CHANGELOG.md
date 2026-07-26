@@ -11,12 +11,13 @@ This release has not published a package or runner image.
 - Added rootless Podman bind-mount UID preservation with `--userns keep-id` for `workspace_owner`.
 - Replaced silent broad exception handling with specific error boundaries or stack-bearing logs; CLI report and approval output remains stdout by design.
 - Added runner-profile validation for Dockerfile CPython, profile metadata, lock-file hashes, and explicit CPython wheel tags.
+- Recorded a one-repetition `qwen3.7-plus` run across all 27 curated cases: 22/27 final successes (81.5%), 27/27 visible-test passes, and 23/27 external-holdout passes. See the versioned result for scope and failure analysis.
 
 The existing `pyfixagent-runner:0.7.2` image remains the configured reviewed runner until a separately qualified v0.7.3 image exists.
 
 Full-suite verification on the release source completed with `python -m pytest -q`: **230 passed, 6 skipped** in 131.30 seconds. The skips are conditional environment or integration coverage; no test failed.
 
-See [the v0.7.3 release record](docs/v0.7.3.md) for the verification scope.
+See [the v0.7.3 release record](docs/v0.7.3.md) and [full-model benchmark result](docs/results/v0.7.3-qwen3.7-plus-full-20260726.md) for scope and evidence.
 
 ## 0.7.2
 
