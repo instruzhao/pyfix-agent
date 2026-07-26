@@ -52,6 +52,7 @@ class DefaultAgent:
         semantic_review_enabled: bool = False,
         semantic_review_max_revisions: int = 1,
         semantic_review_parse_retries: int = 1,
+        semantic_review_model_retries: int = 2,
         semantic_review_max_context_chars: int = 16000,
         semantic_review_max_feedback_chars: int = 3000,
         semantic_review_max_risks: int = 5,
@@ -91,6 +92,7 @@ class DefaultAgent:
         self.semantic_review_enabled = semantic_review_enabled
         self.semantic_review_max_revisions = max(0, semantic_review_max_revisions)
         self.semantic_review_parse_retries = max(0, semantic_review_parse_retries)
+        self.semantic_review_model_retries = max(0, semantic_review_model_retries)
         self.semantic_review_max_context_chars = max(1000, semantic_review_max_context_chars)
         self.semantic_review_max_feedback_chars = max(200, semantic_review_max_feedback_chars)
         self.semantic_review_max_risks = max(1, semantic_review_max_risks)
@@ -166,6 +168,7 @@ class DefaultAgent:
                         max_contracts=self.semantic_review_max_contracts,
                     ),
                     max_parse_retries=self.semantic_review_parse_retries,
+                    max_model_retries=self.semantic_review_model_retries,
                 ),
                 review_policy=ReviewPolicy(self.semantic_review_max_revisions),
                 review_max_feedback_chars=self.semantic_review_max_feedback_chars,

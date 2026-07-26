@@ -39,6 +39,7 @@ DEFAULT_ISOLATE_WORKSPACE = True
 DEFAULT_SEMANTIC_REVIEW_ENABLED = True
 DEFAULT_SEMANTIC_REVIEW_MAX_REVISIONS = 2
 DEFAULT_SEMANTIC_REVIEW_PARSE_RETRIES = 1
+DEFAULT_SEMANTIC_REVIEW_MODEL_RETRIES = 2
 DEFAULT_SEMANTIC_REVIEW_MAX_CONTEXT_CHARS = 16000
 DEFAULT_SEMANTIC_REVIEW_MAX_FEEDBACK_CHARS = 3000
 DEFAULT_SEMANTIC_REVIEW_MAX_RISKS = 3
@@ -335,6 +336,9 @@ def _resolve_review_runtime(args: argparse.Namespace, review: dict) -> dict:
         "semantic_review_parse_retries": int(
             review.get("max_parse_retries", DEFAULT_SEMANTIC_REVIEW_PARSE_RETRIES)
         ),
+        "semantic_review_model_retries": int(
+            review.get("max_model_retries", DEFAULT_SEMANTIC_REVIEW_MODEL_RETRIES)
+        ),
         "semantic_review_max_context_chars": int(
             review.get("max_context_chars", DEFAULT_SEMANTIC_REVIEW_MAX_CONTEXT_CHARS)
         ),
@@ -502,6 +506,7 @@ def _build_agent(runtime: dict, model: LiteLLMModel, review_model: LiteLLMModel)
         semantic_review_enabled=runtime["semantic_review_enabled"],
         semantic_review_max_revisions=runtime["semantic_review_max_revisions"],
         semantic_review_parse_retries=runtime["semantic_review_parse_retries"],
+        semantic_review_model_retries=runtime["semantic_review_model_retries"],
         semantic_review_max_context_chars=runtime["semantic_review_max_context_chars"],
         semantic_review_max_feedback_chars=runtime["semantic_review_max_feedback_chars"],
         semantic_review_max_risks=runtime["semantic_review_max_risks"],

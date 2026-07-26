@@ -6,8 +6,11 @@ import pytest
 
 from pyfixagent.agent.default_agent import DefaultAgent
 from pyfixagent.models.mock_model import MockModel
+from pyfixagent.repair.model_client import ModelGenerationError
+from pyfixagent.review.contracts import ReviewRequest
 from pyfixagent.review.parser import ReviewParseError, ReviewParser
 from pyfixagent.review.policy import ReviewPolicy
+from pyfixagent.review.reviewer import SemanticReviewer
 from pyfixagent.review.risk_scanner import StructuralRiskScanner
 from pyfixagent.sandbox.local_sandbox import LocalSandbox
 
@@ -303,3 +306,106 @@ def test_invalid_review_fails_closed_but_exports_candidate(tmp_path):
     assert result.candidate_patch
     assert result.candidate_patch_path
     assert result.final_summary["status"] == "needs_review"
+
+
+def test_structural_risk_scanner_flags_repeat_delimiter_regex():
+    scanner = StructuralRiskScanner()
+
+    buggy = (
+        "import re\n"
+        "def slugify(value):\n"
+        "    return re.sub(r'[^a-z0-9-]+', '-', value.lower()).strip('-')\n"
+    )
+    assert [c.cue_id for c in scanner.scan([buggy])] == ["delimiter_composition"]
+
+    correct_class = (
+        "import re\n"
+        "def slugify(value):\n"
+        "    return re.sub(r'[^a-z0-9]+', '-', value.lower()).strip('-')\n"
+    )
+    assert scanner.scan([correct_class]) == ()
+
+    correct_with_collapse = (
+        "import re\n"
+        "def slugify(value):\n"
+        "    text = re.sub(r'[^a-z0-9-]+', '-', value.lower())\n"
+        "    return re.sub(r'-+', '-', text).strip('-')\n"
+    )
+    assert scanner.scan([correct_with_collapse]) == ()
+
+
+class _ReviewCtx:
+    metadata = {}
+    rendered = ""
+
+
+class _FlakyReviewClient:
+    def __init__(self, fail_times: int):
+        self.fail_times = fail_times
+        self.calls = 0
+
+    def generate(self, system_prompt, user_prompt):
+        self.calls += 1
+        if self.calls <= self.fail_times:
+            raise ModelGenerationError(RuntimeError("transient 503"), {"attempt": self.calls})
+        return accept_review(), {"attempt": self.calls}
+
+
+def _review_request() -> ReviewRequest:
+    return ReviewRequest(
+        task="Fix the failing tests.",
+        candidate_diff="diff",
+        visible_test_output="1 passed",
+        context=_ReviewCtx(),
+        review_index=1,
+    )
+
+
+def test_semantic_reviewer_retries_transient_model_errors(tmp_path):
+    client = _FlakyReviewClient(fail_times=2)
+    reviewer = SemanticReviewer(
+        client,
+        ReviewParser(),
+        max_parse_retries=0,
+        max_model_retries=2,
+        model_retry_backoff_seconds=0,
+    )
+
+    execution = reviewer.review(_review_request(), tmp_path)
+
+    assert client.calls == 3
+    assert execution.outcome is not None
+    assert execution.model_error is None
+
+
+def test_semantic_reviewer_fails_closed_after_retry_budget(tmp_path):
+    client = _FlakyReviewClient(fail_times=99)
+    reviewer = SemanticReviewer(
+        client,
+        ReviewParser(),
+        max_parse_retries=0,
+        max_model_retries=2,
+        model_retry_backoff_seconds=0,
+    )
+
+    execution = reviewer.review(_review_request(), tmp_path)
+
+    assert client.calls == 3
+    assert execution.outcome is None
+    assert execution.model_error
+
+
+def test_semantic_reviewer_without_model_retries_fails_immediately(tmp_path):
+    client = _FlakyReviewClient(fail_times=99)
+    reviewer = SemanticReviewer(
+        client,
+        ReviewParser(),
+        max_parse_retries=0,
+        max_model_retries=0,
+        model_retry_backoff_seconds=0,
+    )
+
+    execution = reviewer.review(_review_request(), tmp_path)
+
+    assert client.calls == 1
+    assert execution.outcome is None

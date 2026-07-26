@@ -44,14 +44,17 @@ class StructuralRiskScanner:
                 )
                 for node in ast.walk(tree)
             )
-            if has_split and has_composition and not has_boundary_normalization:
+            if (has_split and has_composition and not has_boundary_normalization) or self._has_repeat_delimiter_risk(tree):
                 self._add(
                     cues,
                     StructuralRiskCue(
                         "delimiter_composition",
                         "representation",
                         "The candidate splits structured text and later composes output from caller-provided "
-                        "fragments. Check absent, repeated, and already-present delimiters at every join boundary.",
+                        "fragments. Check absent, repeated, and already-present delimiters at every join boundary. "
+                        "In particular, a regex such as re.sub(\"[^a-z0-9-]+\", \"-\", text) excludes the \"-\" "
+                        "replacement from the matched class, so pre-existing separators survive and can repeat "
+                        "(\"a -- b\" -> \"a----b\"); confirm runs of the delimiter are collapsed to one.",
                     ),
                 )
             implicit_quantization = any(
@@ -149,6 +152,95 @@ class StructuralRiskScanner:
                     )
                 ):
                     return True
+        return False
+
+    @classmethod
+    def _has_repeat_delimiter_risk(cls, tree: ast.AST) -> bool:
+        """Detect a normalization that inserts a delimiter which can then repeat.
+
+        Fires when a ``re.sub``/``re.subn`` uses a negated character class such as
+        ``[^a-z0-9-]+`` whose excluded set contains the single-character replacement
+        delimiter. Because the delimiter is excluded from the matched class, separators
+        already present in the input survive the substitution and run together with the
+        newly inserted ones (the classic slugify bug: ``"a -- b" -> "a----b"``). A later
+        collapse step (``re.sub("-+", "-", ...)`` or ``str.replace("--", "-")``) clears
+        the risk, as does a correct class that does not exclude the delimiter
+        (``re.sub("[^a-z0-9]+", "-", ...)``).
+        """
+        inserted_delimiters: list[str] = []
+        has_collapse = False
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+                continue
+            attr = node.func.attr
+            if attr in {"sub", "subn", "split"} and cls._is_re_func(node.func):
+                pattern = cls._const_str(node.args[0]) if node.args else None
+                if pattern is None:
+                    continue
+                excluded = cls._negated_class_chars(pattern)
+                if excluded is not None:
+                    if attr in {"sub", "subn"} and len(node.args) > 1:
+                        repl = cls._const_str(node.args[1])
+                        if repl is not None and len(repl) == 1 and cls._char_in_excluded(repl, excluded):
+                            inserted_delimiters.append(repl)
+                elif cls._is_collapse_pattern(pattern):
+                    has_collapse = True
+            elif attr == "replace" and len(node.args) >= 2:
+                old = cls._const_str(node.args[0])
+                new = cls._const_str(node.args[1])
+                if old and new and len(old) > len(new) and set(new) <= set(old):
+                    has_collapse = True
+        return bool(inserted_delimiters) and not has_collapse
+
+    @staticmethod
+    def _is_re_func(func: ast.Attribute) -> bool:
+        return isinstance(func.value, ast.Name) and func.value.id == "re"
+
+    @staticmethod
+    def _const_str(node: ast.AST) -> str | None:
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            return node.value
+        return None
+
+    @staticmethod
+    def _negated_class_chars(pattern: str) -> str | None:
+        match = re.match(r"^\s*\[\^([^\]]*)\]\s*[+*?]?\s*$", pattern)
+        return match.group(1) if match else None
+
+    @staticmethod
+    def _is_collapse_pattern(pattern: str) -> bool:
+        if pattern.lstrip().startswith("[^"):
+            return False
+        if re.match(r"^\s*(?:\\.|\.|\[[^\]]*\]|[^\\\s])[+*]\??\s*$", pattern):
+            return True
+        return bool(re.search(r"\{2,\}|\{2\}", pattern))
+
+    @staticmethod
+    def _char_in_excluded(ch: str, spec: str) -> bool:
+        i = 0
+        n = len(spec)
+        while i < n:
+            c = spec[i]
+            if c == "\\" and i + 1 < n:
+                nxt = spec[i + 1]
+                if nxt == ch:
+                    return True
+                if nxt == "d" and ch.isdigit():
+                    return True
+                if nxt == "s" and ch.isspace():
+                    return True
+                if nxt == "w" and (ch.isalnum() or ch == "_"):
+                    return True
+                i += 2
+                continue
+            if i + 2 < n and spec[i + 1] == "-":
+                if c <= ch <= spec[i + 2]:
+                    return True
+                i += 3
+                continue
+            if c == ch:
+                return True
+            i += 1
         return False
 
     @staticmethod

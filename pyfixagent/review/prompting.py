@@ -29,6 +29,25 @@ precision, ordering, state transitions, errors, and compatibility only when rele
 Treat explicit docstring preconditions as contracts: enumerate them and verify that the implementation
 enforces each one. Do not silently narrow or omit a documented input constraint.
 
+Apply these common domain conventions as things to verify against the task wording and supplied code.
+Each is only a question to investigate; report a blocking risk only when the task/domain actually
+requires the convention and the candidate visibly violates it:
+- Rounding and tie-breaking: when the task involves proration, allocation, distribution, or splitting
+  a quantity that must preserve a fixed total, a naive ROUND_HALF_UP can misallocate exact halves;
+  check whether banker's rounding (decimal.ROUND_HALF_EVEN) or a largest-remainder scheme is required.
+  For currency, tax, or invoice display, ROUND_HALF_UP is normally correct. Decide from the task, not
+  from assumption.
+- Normalized identifiers and slugs: runs of separators or whitespace normally collapse to a single
+  delimiter, with leading and trailing delimiters trimmed. A regex class that excludes the delimiter
+  (for example "[^a-z0-9-]" replaced by "-") leaves pre-existing delimiters to repeat, producing runs
+  such as "----". Check whether repeated separators survive.
+- Configuration-style numeric parameters (delays, timeouts, retries, sizes, counts, rates): such values
+  normally must be positive or otherwise valid; check whether non-positive or malformed inputs are
+  rejected with an explicit error instead of being silently coerced or accepted.
+- Chain, linked-list, graph, or rotation traversal: check whether cycles are detected and surfaced as an
+  explicit error rather than silently broken out of or returned as a partial result, unless the task
+  defines a different cycle policy.
+
 Accept a small repair when there is no concrete supported blocking defect. Do not reject merely because
 additional tests could exist. Never assume benchmark holdouts or hidden requirements.
 
